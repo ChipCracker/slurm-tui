@@ -197,8 +197,12 @@ class JobTableWidget(Widget):
             self.post_message(self.JobSelected(self._selected_job))
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
-        """Update selection indicator when cursor moves."""
+        """Update selection indicator when cursor moves and notify of selection."""
         self._update_table()
+        # Post message for job details panel
+        job = self.get_selected_job()
+        if job:
+            self.post_message(self.JobSelected(job))
 
     def get_selected_job(self) -> Job | None:
         """Get the currently selected job."""

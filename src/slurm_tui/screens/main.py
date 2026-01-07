@@ -5,11 +5,11 @@ from __future__ import annotations
 import subprocess
 
 from textual.app import ComposeResult
-from textual.containers import Container, Horizontal
+from textual.containers import Container, Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import Static
 
-from ..widgets import GPUMonitorWidget, GPUHoursWidget, JobTableWidget
+from ..widgets import GPUMonitorWidget, GPUHoursWidget, JobTableWidget, JobDetailsWidget
 from ..utils.slurm import SlurmClient
 from ..utils.gpu import GPUMonitor
 from ..utils.bookmarks import BookmarkManager
@@ -22,7 +22,7 @@ class MainScreen(Screen):
     MainScreen {
         layout: grid;
         grid-size: 1;
-        grid-rows: auto auto auto 1fr auto;
+        grid-rows: auto 1fr auto;
         padding: 0;
         background: #1a1b26;
     }
@@ -45,30 +45,45 @@ class MainScreen(Screen):
         color: #414868;
     }
 
-    MainScreen > #top-panel {
+    MainScreen > #main-content {
+        layout: horizontal;
+        height: 1fr;
+    }
+
+    MainScreen > #main-content > #left-panel {
+        width: 50%;
+        height: 100%;
+    }
+
+    MainScreen > #main-content > #left-panel > #top-panel {
         layout: horizontal;
         height: auto;
         min-height: 6;
         max-height: 10;
     }
 
-    MainScreen > #top-panel > GPUMonitorWidget {
+    MainScreen > #main-content > #left-panel > #top-panel > GPUMonitorWidget {
         width: 1fr;
     }
 
-    MainScreen > #gpu-hours-panel {
+    MainScreen > #main-content > #left-panel > #gpu-hours-panel {
         height: auto;
         min-height: 6;
         max-height: 14;
     }
 
-    MainScreen > #bottom-panel {
+    MainScreen > #main-content > #left-panel > #bottom-panel {
         height: 1fr;
         margin-top: 1;
     }
 
-    MainScreen > #bottom-panel > JobTableWidget {
+    MainScreen > #main-content > #left-panel > #bottom-panel > JobTableWidget {
         width: 100%;
+        height: 100%;
+    }
+
+    MainScreen > #main-content > JobDetailsWidget {
+        width: 50%;
         height: 100%;
     }
 
@@ -107,25 +122,35 @@ class MainScreen(Screen):
             yield Static("SLURM TUI", classes="app-title")
             yield Static("10s refresh", classes="app-info")
 
-        # GPU Monitor (full width)
-        with Container(id="top-panel"):
-            yield GPUMonitorWidget(
-                gpu_monitor=self.gpu_monitor,
-                refresh_interval=10.0,
-            )
+        # Main 2-column layout
+        with Horizontal(id="main-content"):
+            # Left panel - GPU monitor, hours, jobs
+            with Vertical(id="left-panel"):
+                # GPU Monitor (full width)
+                with Container(id="top-panel"):
+                    yield GPUMonitorWidget(
+                        gpu_monitor=self.gpu_monitor,
+                        refresh_interval=10.0,
+                    )
 
-        # GPU Hours
-        with Container(id="gpu-hours-panel"):
-            yield GPUHoursWidget(
-                gpu_monitor=self.gpu_monitor,
-                refresh_interval=60.0,
-            )
+                # GPU Hours
+                with Container(id="gpu-hours-panel"):
+                    yield GPUHoursWidget(
+                        gpu_monitor=self.gpu_monitor,
+                        refresh_interval=60.0,
+                    )
 
-        # Jobs table
-        with Container(id="bottom-panel"):
-            yield JobTableWidget(
+                # Jobs table
+                with Container(id="bottom-panel"):
+                    yield JobTableWidget(
+                        slurm_client=self.slurm_client,
+                        refresh_interval=10.0,
+                    )
+
+            # Right panel - Job details
+            yield JobDetailsWidget(
                 slurm_client=self.slurm_client,
-                refresh_interval=10.0,
+                id="details-panel",
             )
 
         # Custom keybindings footer
@@ -135,6 +160,11 @@ class MainScreen(Screen):
             "[#7aa2f7]b[/]ookmarks  [#7aa2f7]e[/]ditor  [#7aa2f7]q[/]uit",
             classes="keybindings",
         )
+
+    def on_job_table_widget_job_selected(self, message: JobTableWidget.JobSelected) -> None:
+        """Handle job selection from the job table."""
+        details_panel = self.query_one(JobDetailsWidget)
+        details_panel.update_job(message.job)
 
     def action_quit(self) -> None:
         """Quit the application."""
@@ -150,6 +180,9 @@ class MainScreen(Screen):
 
         job_table = self.query_one(JobTableWidget)
         job_table.refresh_data()
+
+        details_panel = self.query_one(JobDetailsWidget)
+        details_panel.refresh_logs()
 
         self.notify("Data refreshed")
 
