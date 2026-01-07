@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 
 from textual.app import ComposeResult
-from textual.containers import Vertical
+from textual.containers import Vertical, ScrollableContainer
 from textual.reactive import reactive
 from textual.widgets import Static, TextArea
 from textual.widget import Widget
@@ -25,65 +25,63 @@ class JobDetailsWidget(Widget):
         border-left: solid #414868;
     }
 
-    JobDetailsWidget > .details-header {
-        height: auto;
-        margin-bottom: 0;
-    }
-
-    JobDetailsWidget > .details-header > .details-title {
+    JobDetailsWidget > .details-title {
         color: #7aa2f7;
         text-style: bold;
-    }
-
-    JobDetailsWidget > .details-header > .details-subtitle {
-        color: #565f89;
+        height: auto;
     }
 
     JobDetailsWidget > .separator {
         color: #414868;
-        margin-bottom: 0;
+        height: auto;
     }
 
-    JobDetailsWidget > .section-label {
+    JobDetailsWidget > #content-container {
+        height: 1fr;
+        background: transparent;
+    }
+
+    JobDetailsWidget .section-label {
         color: #565f89;
         margin-top: 1;
+        height: auto;
     }
 
-    JobDetailsWidget > .script-path {
+    JobDetailsWidget .script-path {
         color: #9ece6a;
-        margin-bottom: 0;
+        height: auto;
     }
 
-    JobDetailsWidget > TextArea {
+    JobDetailsWidget .no-job {
+        color: #565f89;
+        text-style: italic;
+        text-align: center;
+        padding: 2;
+        height: auto;
+    }
+
+    JobDetailsWidget .not-your-job {
+        color: #e0af68;
+        text-align: center;
+        padding: 2;
+        height: auto;
+    }
+
+    JobDetailsWidget TextArea {
         height: 1fr;
         background: transparent;
         border: none;
         min-height: 5;
     }
 
-    JobDetailsWidget > .no-job {
-        color: #565f89;
-        text-style: italic;
-        text-align: center;
-        padding: 2;
-    }
-
-    JobDetailsWidget > .not-your-job {
-        color: #e0af68;
-        text-align: center;
-        padding: 2;
-    }
-
-    JobDetailsWidget > #script-area {
+    JobDetailsWidget #script-area {
         max-height: 40%;
     }
 
-    JobDetailsWidget > #logs-area {
+    JobDetailsWidget #logs-area {
         height: 1fr;
     }
     """
-
-    job: reactive[Job | None] = reactive(None)
 
     def __init__(
         self,
@@ -96,72 +94,40 @@ class JobDetailsWidget(Widget):
         self._is_own_job: bool = False
 
     def compose(self) -> ComposeResult:
-        yield Static("Job Details", classes="details-title details-header")
+        yield Static("Job Details", classes="details-title")
         yield Static("─" * 40, classes="separator")
-        yield Static("Select a job to view details", id="placeholder", classes="no-job")
+        yield Vertical(id="content-container")
 
-    def watch_job(self, job: Job | None) -> None:
-        """React to job changes."""
-        self._current_job = job
-        self._update_display()
+    def on_mount(self) -> None:
+        """Show initial placeholder."""
+        self._show_placeholder("Select a job to view details")
 
-    def _update_display(self) -> None:
-        """Update the display based on current job."""
-        # Remove old content except header
-        for widget in list(self.query("*")):
-            if widget.id not in (None,) and widget.id not in ("placeholder",):
-                if isinstance(widget, (TextArea, Static)) and widget.has_class("details-title", "separator") is False:
-                    pass
+    def _clear_content(self) -> None:
+        """Clear the content container."""
+        container = self.query_one("#content-container", Vertical)
+        container.remove_children()
 
-        # Clear everything and rebuild
-        self._rebuild_content()
+    def _show_placeholder(self, message: str, is_warning: bool = False) -> None:
+        """Show a placeholder message."""
+        self._clear_content()
+        container = self.query_one("#content-container", Vertical)
+        css_class = "not-your-job" if is_warning else "no-job"
+        container.mount(Static(message, classes=css_class))
 
-    def _rebuild_content(self) -> None:
-        """Rebuild the widget content."""
-        # Remove dynamic content
-        for widget in list(self.query(TextArea)):
-            widget.remove()
-        for widget in list(self.query(".section-label")):
-            widget.remove()
-        for widget in list(self.query(".script-path")):
-            widget.remove()
-        for widget in list(self.query(".not-your-job")):
-            widget.remove()
-
-        placeholder = self.query_one("#placeholder", Static)
-
-        if self._current_job is None:
-            placeholder.update("Select a job to view details")
-            placeholder.display = True
-            return
-
-        # Check if it's our job
-        username = self.slurm_client.username
-        job_user = self._get_job_user()
-        self._is_own_job = job_user == username if job_user else True  # Assume own job if can't determine
-
-        # Update header
-        header = self.query_one(".details-title", Static)
-        header.update(f"Job {self._current_job.job_id} - {self._current_job.name}")
-
-        if not self._is_own_job:
-            placeholder.update(f"Not your job (owner: {job_user})\nDetails not available")
-            placeholder.remove_class("no-job")
-            placeholder.add_class("not-your-job")
-            placeholder.display = True
-            return
-
-        placeholder.display = False
+    def _show_job_details(self) -> None:
+        """Show full job details with script and logs."""
+        self._clear_content()
+        container = self.query_one("#content-container", Vertical)
 
         # Get script path and content
         script_path = self._get_script_path()
         script_content = self._get_script_content()
         stderr_content = self._get_stderr_content()
 
-        # Mount new content
-        self.mount(Static("Script", classes="section-label"))
-        self.mount(Static(f"{script_path or 'N/A'}", classes="script-path"))
-        self.mount(Static("─" * 40, classes="separator"))
+        # Mount content
+        container.mount(Static("Script", classes="section-label"))
+        container.mount(Static(f"{script_path or 'N/A'}", classes="script-path"))
+        container.mount(Static("─" * 40, classes="separator"))
 
         script_area = TextArea(
             script_content,
@@ -170,10 +136,10 @@ class JobDetailsWidget(Widget):
             show_line_numbers=True,
             id="script-area",
         )
-        self.mount(script_area)
+        container.mount(script_area)
 
-        self.mount(Static("Logs (stderr)", classes="section-label"))
-        self.mount(Static("─" * 40, classes="separator"))
+        container.mount(Static("Logs (stderr)", classes="section-label"))
+        container.mount(Static("─" * 40, classes="separator"))
 
         logs_area = TextArea(
             stderr_content,
@@ -181,10 +147,52 @@ class JobDetailsWidget(Widget):
             show_line_numbers=True,
             id="logs-area",
         )
-        self.mount(logs_area)
+        container.mount(logs_area)
 
-        # Scroll logs to end
-        logs_area.scroll_end(animate=False)
+        # Scroll logs to end after mount
+        self.call_after_refresh(self._scroll_logs_to_end)
+
+    def _scroll_logs_to_end(self) -> None:
+        """Scroll the logs area to the end."""
+        try:
+            logs_area = self.query_one("#logs-area", TextArea)
+            logs_area.scroll_end(animate=False)
+        except Exception:
+            pass
+
+    def update_job(self, job: Job | None) -> None:
+        """Update the displayed job."""
+        self._current_job = job
+        self._refresh_display()
+
+    def _refresh_display(self) -> None:
+        """Refresh the display based on current job."""
+        if self._current_job is None:
+            self._update_title("Job Details")
+            self._show_placeholder("Select a job to view details")
+            return
+
+        # Update title
+        self._update_title(f"Job {self._current_job.job_id} - {self._current_job.name}")
+
+        # Check if it's our job
+        username = self.slurm_client.username
+        job_user = self._get_job_user()
+        self._is_own_job = job_user == username if job_user else True
+
+        if not self._is_own_job:
+            self._show_placeholder(
+                f"Not your job (owner: {job_user})\nDetails not available",
+                is_warning=True
+            )
+            return
+
+        self._show_job_details()
+
+    def _update_title(self, title: str) -> None:
+        """Update the title."""
+        header = self.query_one(".details-title", Static)
+        header.update(title)
 
     def _get_job_user(self) -> str | None:
         """Get the user who owns the job."""
@@ -259,11 +267,7 @@ class JobDetailsWidget(Widget):
 
         return '\n'.join(lines)
 
-    def update_job(self, job: Job | None) -> None:
-        """Update the displayed job."""
-        self.job = job
-
     def refresh_logs(self) -> None:
         """Refresh the log content."""
         if self._current_job and self._is_own_job:
-            self._rebuild_content()
+            self._refresh_display()
