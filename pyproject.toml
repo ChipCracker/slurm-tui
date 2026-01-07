@@ -1,0 +1,19 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "slurm-tui"
+version = "0.1.0"
+description = "A modern TUI for SLURM cluster management with GPU monitoring"
+requires-python = ">=3.10"
+dependencies = [
+    "textual>=0.47.0",
+    "rich>=13.0.0",
+]
+
+[project.scripts]
+slurm-tui = "slurm_tui.app:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/slurm_tui"]
