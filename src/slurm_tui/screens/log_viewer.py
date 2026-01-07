@@ -9,7 +9,7 @@ from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.reactive import reactive
 from textual.screen import ModalScreen
-from textual.widgets import Static, RichLog, Button, TabbedContent, TabPane
+from textual.widgets import Static, TextArea, Button, TabbedContent, TabPane
 
 from ..utils.slurm import SlurmClient, Job
 
@@ -40,10 +40,9 @@ class LogViewerScreen(ModalScreen):
         height: 1fr;
     }
 
-    LogViewerScreen RichLog {
+    LogViewerScreen TextArea {
         height: 1fr;
         border: solid $primary-darken-2;
-        scrollbar-gutter: stable;
     }
 
     LogViewerScreen .log-actions {
@@ -91,12 +90,13 @@ class LogViewerScreen(ModalScreen):
                 classes="log-title",
             )
 
-            with TabbedContent():
-                with TabPane("stdout", id="stdout-tab"):
-                    yield RichLog(id="stdout-log", highlight=True, markup=True)
-
+            # stderr tab first (default)
+            with TabbedContent(initial="stderr-tab"):
                 with TabPane("stderr", id="stderr-tab"):
-                    yield RichLog(id="stderr-log", highlight=True, markup=True)
+                    yield TextArea(id="stderr-log", read_only=True, show_line_numbers=True)
+
+                with TabPane("stdout", id="stdout-tab"):
+                    yield TextArea(id="stdout-log", read_only=True, show_line_numbers=True)
 
             with Horizontal(classes="log-actions"):
                 yield Button("Refresh", variant="primary", id="refresh")
@@ -116,39 +116,47 @@ class LogViewerScreen(ModalScreen):
 
     def _load_logs(self) -> None:
         """Load log file contents."""
-        stdout_log = self.query_one("#stdout-log", RichLog)
-        stderr_log = self.query_one("#stderr-log", RichLog)
-
-        stdout_log.clear()
-        stderr_log.clear()
-
-        # Load stdout
-        if self.stdout_path and os.path.exists(self.stdout_path):
-            self._load_file_to_log(self.stdout_path, stdout_log)
-        else:
-            stdout_log.write("[dim]No stdout log available[/dim]")
+        stdout_log = self.query_one("#stdout-log", TextArea)
+        stderr_log = self.query_one("#stderr-log", TextArea)
 
         # Load stderr
         if self.stderr_path and os.path.exists(self.stderr_path):
-            self._load_file_to_log(self.stderr_path, stderr_log)
+            content = self._read_log_file(self.stderr_path)
+            stderr_log.load_text(content)
+            # Scroll to end
+            stderr_log.scroll_end(animate=False)
         else:
-            stderr_log.write("[dim]No stderr log available[/dim]")
+            stderr_log.load_text("No stderr log available")
 
-    def _load_file_to_log(self, path: str, log_widget: RichLog, tail: int = 500) -> None:
-        """Load file contents into a RichLog widget."""
+        # Load stdout
+        if self.stdout_path and os.path.exists(self.stdout_path):
+            content = self._read_log_file(self.stdout_path)
+            stdout_log.load_text(content)
+            # Scroll to end
+            stdout_log.scroll_end(animate=False)
+        else:
+            stdout_log.load_text("No stdout log available")
+
+    def _read_log_file(self, path: str, tail: int = 1000) -> str:
+        """Read log file and return content as string."""
         try:
             with open(path) as f:
                 lines = f.readlines()
 
-            # Show last N lines
-            if len(lines) > tail:
-                log_widget.write(f"[dim]... ({len(lines) - tail} lines omitted) ...[/dim]\n")
-                lines = lines[-tail:]
-
+            # Process lines: handle carriage returns (training progress)
+            processed_lines = []
             for line in lines:
-                log_widget.write(line.rstrip())
+                # Split by carriage return and keep only the last part
+                parts = line.split('\r')
+                processed_lines.append(parts[-1].rstrip())
+
+            # Show last N lines
+            if len(processed_lines) > tail:
+                processed_lines = [f"... ({len(processed_lines) - tail} lines omitted) ..."] + processed_lines[-tail:]
+
+            return '\n'.join(processed_lines)
         except Exception as e:
-            log_widget.write(f"[red]Error reading log: {e}[/red]")
+            return f"Error reading log: {e}"
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button presses."""
