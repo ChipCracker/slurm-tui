@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import subprocess
+
 from textual.app import ComposeResult
-from textual.containers import Container, Horizontal, Vertical
+from textual.containers import Container, Horizontal
 from textual.screen import Screen
-from textual.widgets import Header, Footer, Static
+from textual.widgets import Header, Footer
 
 from ..widgets import GPUMonitorWidget, GPUHoursWidget, JobTableWidget
 from ..utils.slurm import SlurmClient
 from ..utils.gpu import GPUMonitor
+from ..utils.bookmarks import BookmarkManager
 
 
 class MainScreen(Screen):
@@ -55,6 +58,10 @@ class MainScreen(Screen):
         ("a", "attach", "Attach"),
         ("c", "cancel", "Cancel"),
         ("u", "toggle_users", "Toggle Users"),
+        ("l", "view_logs", "Logs"),
+        ("b", "bookmarks", "Bookmarks"),
+        ("B", "add_bookmark", "Add Bookmark"),
+        ("e", "editor", "Editor"),
         ("?", "help", "Help"),
     ]
 
@@ -62,6 +69,7 @@ class MainScreen(Screen):
         super().__init__()
         self.slurm_client = SlurmClient()
         self.gpu_monitor = GPUMonitor()
+        self.bookmark_manager = BookmarkManager()
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -112,7 +120,7 @@ class MainScreen(Screen):
         self.app.push_screen(InteractiveSessionScreen())
 
     def action_attach(self) -> None:
-        """Attach to selected job."""
+        """Attach to selected job using suspend/resume."""
         job_table = self.query_one(JobTableWidget)
         job = job_table.get_selected_job()
 
@@ -124,12 +132,12 @@ class MainScreen(Screen):
             self.notify(f"Job {job.job_id} is not running (state: {job.state})", severity="warning")
             return
 
-        # Show the attach command
         cmd = self.slurm_client.attach_to_job(job.job_id)
-        self.notify(f"Run: {' '.join(cmd)}")
+        self.notify(f"Attaching to job {job.job_id}...")
 
-        # We can't actually attach from TUI, but we can show the command
-        self.app.exit(message=f"To attach, run:\n{' '.join(cmd)}")
+        # Suspend TUI, run srun, then resume
+        with self.app.suspend():
+            subprocess.run(cmd)
 
     def action_cancel(self) -> None:
         """Cancel selected job."""
@@ -151,6 +159,40 @@ class MainScreen(Screen):
     def action_help(self) -> None:
         """Show help."""
         self.notify(
-            "q=Quit r=Refresh n=New i=Interactive a=Attach c=Cancel u=Users",
+            "q=Quit r=Refresh n=New i=Interactive a=Attach c=Cancel l=Logs b=Bookmarks e=Editor",
             timeout=5,
         )
+
+    def action_view_logs(self) -> None:
+        """View logs for selected job."""
+        job_table = self.query_one(JobTableWidget)
+        job = job_table.get_selected_job()
+
+        if job is None:
+            self.notify("No job selected", severity="warning")
+            return
+
+        from .log_viewer import LogViewerScreen
+        self.app.push_screen(LogViewerScreen(job, self.slurm_client))
+
+    def action_bookmarks(self) -> None:
+        """Show bookmarks."""
+        from .bookmarks import BookmarksScreen
+        self.app.push_screen(BookmarksScreen(self.bookmark_manager))
+
+    def action_add_bookmark(self) -> None:
+        """Add current job to bookmarks."""
+        job_table = self.query_one(JobTableWidget)
+        job = job_table.get_selected_job()
+
+        if job is None:
+            self.notify("No job selected", severity="warning")
+            return
+
+        self.bookmark_manager.add_job(job.job_id, job.name)
+        self.notify(f"Bookmarked job {job.job_id}")
+
+    def action_editor(self) -> None:
+        """Open script editor."""
+        from .editor import EditorScreen
+        self.app.push_screen(EditorScreen())

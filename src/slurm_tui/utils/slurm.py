@@ -180,6 +180,20 @@ class SlurmClient:
 
         return details
 
+    def get_job_log_paths(self, job_id: str) -> tuple[Optional[str], Optional[str]]:
+        """Get stdout and stderr log file paths for a job.
+
+        Returns (stdout_path, stderr_path) tuple.
+        """
+        details = self.get_job_details(job_id)
+        if not details:
+            return None, None
+
+        stdout_path = details.get("StdOut")
+        stderr_path = details.get("StdErr")
+
+        return stdout_path, stderr_path
+
     def attach_to_job(self, job_id: str) -> list[str]:
         """Get command to attach to a running job."""
         return ["srun", f"--jobid={job_id}", "--overlap", "--pty", "/bin/bash", "-l"]
