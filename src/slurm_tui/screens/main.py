@@ -5,9 +5,9 @@ from __future__ import annotations
 import subprocess
 
 from textual.app import ComposeResult
-from textual.containers import Container, Horizontal
+from textual.containers import Container, Horizontal, Vertical
 from textual.screen import Screen
-from textual.widgets import Header, Footer
+from textual.widgets import Footer, Static
 
 from ..widgets import GPUMonitorWidget, GPUHoursWidget, JobTableWidget
 from ..utils.slurm import SlurmClient
@@ -22,18 +22,28 @@ class MainScreen(Screen):
     MainScreen {
         layout: grid;
         grid-size: 1;
-        grid-rows: auto 1fr;
+        grid-rows: auto auto 1fr auto;
+        padding: 1 2;
+        background: #1a1b26;
+    }
+
+    MainScreen > .app-title {
+        color: #7aa2f7;
+        text-style: bold;
+        text-align: center;
+        padding: 0 0 1 0;
     }
 
     MainScreen > #top-panel {
         layout: horizontal;
         height: auto;
-        min-height: 10;
-        max-height: 15;
+        min-height: 8;
+        max-height: 12;
     }
 
     MainScreen > #top-panel > GPUMonitorWidget {
         width: 2fr;
+        margin-right: 1;
     }
 
     MainScreen > #top-panel > GPUHoursWidget {
@@ -42,6 +52,7 @@ class MainScreen(Screen):
 
     MainScreen > #bottom-panel {
         height: 1fr;
+        margin-top: 1;
     }
 
     MainScreen > #bottom-panel > JobTableWidget {
@@ -72,7 +83,7 @@ class MainScreen(Screen):
         self.bookmark_manager = BookmarkManager()
 
     def compose(self) -> ComposeResult:
-        yield Header(show_clock=True)
+        yield Static("SLURM TUI", classes="app-title")
 
         with Horizontal(id="top-panel"):
             yield GPUMonitorWidget(

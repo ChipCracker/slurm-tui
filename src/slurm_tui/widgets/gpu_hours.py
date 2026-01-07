@@ -18,32 +18,30 @@ class GPUHoursWidget(Widget):
 
     DEFAULT_CSS = """
     GPUHoursWidget {
-        border: solid $secondary;
+        background: #24283b;
+        border: round #414868;
         height: auto;
         min-height: 10;
-        padding: 0 1;
+        padding: 1 2;
+        margin: 0 0 1 0;
     }
 
     GPUHoursWidget > .hours-title {
+        color: #bb9af7;
         text-style: bold;
-        color: $text;
         padding: 0 0 1 0;
     }
 
     GPUHoursWidget > DataTable {
         height: auto;
-        max-height: 12;
+        max-height: 10;
+        background: transparent;
     }
 
     GPUHoursWidget .no-data {
-        color: $text-muted;
+        color: #565f89;
         text-style: italic;
         padding: 1;
-    }
-
-    GPUHoursWidget .current-user {
-        text-style: bold;
-        color: $success;
     }
     """
 
@@ -63,11 +61,11 @@ class GPUHoursWidget(Widget):
 
     def compose(self) -> ComposeResult:
         year = datetime.now().year
-        yield Static(f"GPU Hours ({year})", classes="hours-title")
+        yield Static(f"GPU Hours {year}", classes="hours-title")
 
         table = DataTable(zebra_stripes=True)
         table.cursor_type = "row"
-        table.add_columns("#", "User", "Hours", "Account")
+        table.add_columns("", "User", "Hours")
         yield table
 
     def on_mount(self) -> None:
@@ -78,7 +76,7 @@ class GPUHoursWidget(Widget):
     def refresh_data(self) -> None:
         """Refresh GPU hours data."""
         try:
-            self.entries = self.gpu_monitor.get_gpu_hours(limit=15)
+            self.entries = self.gpu_monitor.get_gpu_hours(limit=10)
             self._update_table()
         except Exception:
             pass
@@ -90,12 +88,23 @@ class GPUHoursWidget(Widget):
 
         for i, entry in enumerate(self.entries, 1):
             is_current = entry.user == self.current_user
-            user_display = f"[bold green]{entry.user}[/]" if is_current else entry.user
-            hours_display = f"[bold green]{entry.hours:,.1f}[/]" if is_current else f"{entry.hours:,.1f}"
 
-            table.add_row(
-                str(i),
-                user_display,
-                hours_display,
-                entry.account,
-            )
+            # Rank indicator
+            if i == 1:
+                rank = "[#e0af68]1.[/]"
+            elif i == 2:
+                rank = "[#565f89]2.[/]"
+            elif i == 3:
+                rank = "[#9d7cd8]3.[/]"
+            else:
+                rank = f"[#414868]{i}.[/]"
+
+            # User with highlight for current
+            if is_current:
+                user_display = f"[#9ece6a bold]{entry.user}[/]"
+                hours_display = f"[#9ece6a bold]{entry.hours:,.0f}h[/]"
+            else:
+                user_display = f"[#c0caf5]{entry.user}[/]"
+                hours_display = f"[#565f89]{entry.hours:,.0f}h[/]"
+
+            table.add_row(rank, user_display, hours_display)

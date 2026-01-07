@@ -14,51 +14,170 @@ class SlurmTUI(App):
     SUB_TITLE = "GPU Cluster Management"
 
     CSS = """
+    /* Tokyo Night Color Scheme */
+    $background: #1a1b26;
+    $surface: #24283b;
+    $surface-light: #414868;
+    $primary: #7aa2f7;
+    $secondary: #bb9af7;
+    $success: #9ece6a;
+    $warning: #e0af68;
+    $error: #f7768e;
+    $text: #c0caf5;
+    $text-muted: #565f89;
+    $border: #414868;
+
     Screen {
+        background: $background;
+    }
+
+    /* Minimal Footer */
+    Footer {
+        background: $surface;
+        color: $text-muted;
+        height: 1;
+    }
+
+    Footer > .footer--key {
+        background: $surface-light;
+        color: $primary;
+    }
+
+    /* DataTable - Clean look */
+    DataTable {
+        background: $surface;
+        scrollbar-background: $surface;
+        scrollbar-color: $surface-light;
+    }
+
+    DataTable > .datatable--cursor {
+        background: $surface-light;
+        color: $text;
+    }
+
+    DataTable > .datatable--header {
+        background: $surface;
+        color: $primary;
+        text-style: bold;
+    }
+
+    DataTable > .datatable--even-row {
         background: $surface;
     }
 
-    Header {
-        background: $primary-darken-2;
+    DataTable > .datatable--odd-row {
+        background: #1e2030;
     }
 
-    Footer {
-        background: $primary-darken-3;
+    /* Progress bars */
+    ProgressBar {
+        padding: 0;
     }
 
-    /* Progress bar styling */
     ProgressBar > .bar--bar {
         color: $success;
+        background: $surface-light;
     }
 
     ProgressBar > .bar--complete {
         color: $success;
     }
 
-    /* DataTable styling */
-    DataTable {
+    /* Buttons */
+    Button {
+        background: $surface-light;
+        color: $text;
+        border: none;
+        min-width: 10;
+    }
+
+    Button:hover {
+        background: $primary;
+        color: $background;
+    }
+
+    Button.-primary {
+        background: $primary;
+        color: $background;
+    }
+
+    Button.-success {
+        background: $success;
+        color: $background;
+    }
+
+    Button.-error {
+        background: $error;
+        color: $background;
+    }
+
+    /* Input fields */
+    Input {
         background: $surface;
-    }
-
-    DataTable > .datatable--cursor {
-        background: $primary-darken-1;
-    }
-
-    DataTable > .datatable--header {
-        background: $primary-darken-2;
-        text-style: bold;
-    }
-
-    /* Widget titles */
-    .gpu-title, .hours-title, .jobs-title {
-        background: $primary-darken-2;
+        border: tall $border;
         padding: 0 1;
     }
 
-    /* Notification styling */
+    Input:focus {
+        border: tall $primary;
+    }
+
+    /* Select */
+    Select {
+        background: $surface;
+        border: tall $border;
+    }
+
+    Select:focus {
+        border: tall $primary;
+    }
+
+    /* TextArea */
+    TextArea {
+        background: $surface;
+        border: round $border;
+    }
+
+    /* TabbedContent */
+    TabbedContent {
+        background: $surface;
+    }
+
+    Tabs {
+        background: $surface;
+    }
+
+    Tab {
+        background: $surface;
+        color: $text-muted;
+        padding: 0 2;
+    }
+
+    Tab.-active {
+        background: $surface-light;
+        color: $primary;
+    }
+
+    Tab:hover {
+        background: $surface-light;
+    }
+
+    TabPane {
+        background: $surface;
+        padding: 1;
+    }
+
+    /* Toast notifications */
     Toast {
         background: $surface;
-        border: solid $primary;
+        border: round $primary;
+        color: $text;
+    }
+
+    /* Scrollbars */
+    Vertical:focus-within > ScrollBar,
+    Horizontal:focus-within > ScrollBar {
+        background: $surface;
     }
     """
 

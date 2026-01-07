@@ -9,7 +9,7 @@ from textual.app import ComposeResult
 from textual.containers import Vertical, Horizontal
 from textual.reactive import reactive
 from textual.screen import Screen
-from textual.widgets import Static, TextArea, Button, Input, Header, Footer
+from textual.widgets import Static, TextArea, Button, Input
 
 from ..utils.bookmarks import BookmarkManager
 
@@ -21,36 +21,48 @@ class EditorScreen(Screen):
     EditorScreen {
         layout: grid;
         grid-size: 1;
-        grid-rows: auto 1fr auto;
+        grid-rows: auto auto auto 1fr auto;
+        background: #1a1b26;
+    }
+
+    EditorScreen .editor-title {
+        text-style: bold;
+        text-align: center;
+        padding: 1;
+        color: #9ece6a;
+        background: #24283b;
     }
 
     EditorScreen .editor-header {
         layout: horizontal;
         height: auto;
-        padding: 1;
-        background: $primary-darken-2;
+        padding: 0 2;
+        background: #24283b;
     }
 
     EditorScreen .editor-header .filename {
         width: 1fr;
-        text-style: bold;
+        color: #7aa2f7;
     }
 
     EditorScreen .editor-header .modified {
         width: auto;
-        color: $warning;
+        color: #e0af68;
     }
 
     EditorScreen TextArea {
         height: 1fr;
+        background: #1a1b26;
+        border: none;
     }
 
     EditorScreen .editor-footer {
         layout: horizontal;
         height: auto;
         padding: 1;
-        background: $surface-darken-1;
+        background: #24283b;
         align: center middle;
+        border-top: solid #414868;
     }
 
     EditorScreen .editor-footer Button {
@@ -61,11 +73,18 @@ class EditorScreen(Screen):
         layout: horizontal;
         height: auto;
         padding: 1;
-        background: $surface-darken-1;
+        background: #24283b;
+        border-bottom: solid #414868;
     }
 
     EditorScreen .file-picker Input {
         width: 1fr;
+        background: #1a1b26;
+        border: tall #414868;
+    }
+
+    EditorScreen .file-picker Input:focus {
+        border: tall #9ece6a;
     }
 
     EditorScreen .file-picker Button {
@@ -90,7 +109,7 @@ class EditorScreen(Screen):
         self.bookmark_manager = BookmarkManager()
 
     def compose(self) -> ComposeResult:
-        yield Header()
+        yield Static("Script Editor", classes="editor-title")
 
         with Horizontal(classes="editor-header"):
             yield Static("No file open", id="filename", classes="filename")
@@ -107,8 +126,6 @@ class EditorScreen(Screen):
             yield Button("Save", variant="success", id="save")
             yield Button("Save As...", variant="primary", id="save-as")
             yield Button("Close", variant="default", id="close")
-
-        yield Footer()
 
     def on_mount(self) -> None:
         """Load initial file if provided."""

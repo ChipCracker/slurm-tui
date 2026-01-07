@@ -20,20 +20,22 @@ class LogViewerScreen(ModalScreen):
     DEFAULT_CSS = """
     LogViewerScreen {
         align: center middle;
+        background: rgba(26, 27, 38, 0.85);
     }
 
     LogViewerScreen > Vertical {
         width: 90%;
         height: 90%;
-        border: thick $primary;
-        background: $surface;
+        border: round #414868;
+        background: #24283b;
     }
 
     LogViewerScreen .log-title {
         text-style: bold;
         text-align: center;
         padding: 1;
-        background: $primary-darken-2;
+        color: #7aa2f7;
+        background: #1a1b26;
     }
 
     LogViewerScreen .log-container {
@@ -42,14 +44,16 @@ class LogViewerScreen(ModalScreen):
 
     LogViewerScreen TextArea {
         height: 1fr;
-        border: solid $primary-darken-2;
+        background: #1a1b26;
+        border: none;
     }
 
     LogViewerScreen .log-actions {
         height: auto;
         padding: 1;
         align: center middle;
-        background: $surface-darken-1;
+        background: #1a1b26;
+        border-top: solid #414868;
     }
 
     LogViewerScreen .log-actions Button {
@@ -58,12 +62,32 @@ class LogViewerScreen(ModalScreen):
 
     LogViewerScreen .no-log {
         text-align: center;
-        color: $text-muted;
+        color: #565f89;
         padding: 2;
     }
 
     LogViewerScreen TabbedContent {
         height: 1fr;
+        background: #24283b;
+    }
+
+    LogViewerScreen Tabs {
+        background: #1a1b26;
+    }
+
+    LogViewerScreen Tab {
+        background: #1a1b26;
+        color: #565f89;
+    }
+
+    LogViewerScreen Tab.-active {
+        background: #24283b;
+        color: #7aa2f7;
+    }
+
+    LogViewerScreen TabPane {
+        background: #24283b;
+        padding: 0;
     }
     """
 

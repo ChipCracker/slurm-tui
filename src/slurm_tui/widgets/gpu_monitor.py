@@ -5,10 +5,27 @@ from __future__ import annotations
 from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.reactive import reactive
-from textual.widgets import Static, ProgressBar, Label
+from textual.widgets import Static, Label
 from textual.widget import Widget
 
 from ..utils.gpu import GPUMonitor, PartitionGPU
+
+
+def make_progress_bar(percent: float, width: int = 20) -> str:
+    """Create a text-based progress bar with modern characters."""
+    filled = int(percent / 100 * width)
+    empty = width - filled
+
+    # Color based on usage
+    if percent < 50:
+        color = "#9ece6a"  # green
+    elif percent < 80:
+        color = "#e0af68"  # yellow
+    else:
+        color = "#f7768e"  # red
+
+    bar = "▰" * filled + "▱" * empty
+    return f"[{color}]{bar}[/]"
 
 
 class PartitionRow(Static):
@@ -18,26 +35,28 @@ class PartitionRow(Static):
     PartitionRow {
         layout: horizontal;
         height: 1;
-        margin: 0 1;
+        padding: 0 1;
     }
 
     PartitionRow .partition-name {
-        width: 6;
+        width: 5;
+        color: #7aa2f7;
         text-style: bold;
     }
 
     PartitionRow .partition-count {
-        width: 10;
+        width: 8;
         text-align: right;
+        color: #565f89;
     }
 
     PartitionRow .partition-bar {
-        width: 1fr;
-        margin: 0 1;
+        width: 24;
+        padding: 0 2;
     }
 
     PartitionRow .partition-percent {
-        width: 7;
+        width: 6;
         text-align: right;
     }
     """
@@ -49,25 +68,40 @@ class PartitionRow(Static):
     def compose(self) -> ComposeResult:
         yield Label(self.partition.partition, classes="partition-name")
         yield Label(
-            f"{self.partition.allocated}/{self.partition.total}",
+            f"{self.partition.allocated:2}/{self.partition.total}",
             classes="partition-count",
         )
-        bar = ProgressBar(total=100, show_eta=False, show_percentage=False)
-        bar.add_class("partition-bar")
-        bar.progress = self.partition.usage_percent
-        yield bar
-        yield Label(f"{self.partition.usage_percent:5.1f}%", classes="partition-percent")
+        yield Static(
+            make_progress_bar(self.partition.usage_percent),
+            classes="partition-bar",
+        )
+        # Color the percentage based on usage
+        percent = self.partition.usage_percent
+        if percent < 50:
+            color = "#9ece6a"
+        elif percent < 80:
+            color = "#e0af68"
+        else:
+            color = "#f7768e"
+        yield Static(f"[{color}]{percent:5.1f}%[/]", classes="partition-percent")
 
     def update_partition(self, partition: PartitionGPU) -> None:
         """Update the partition data."""
         self.partition = partition
         self.query_one(".partition-count", Label).update(
-            f"{partition.allocated}/{partition.total}"
+            f"{partition.allocated:2}/{partition.total}"
         )
-        self.query_one(".partition-bar", ProgressBar).progress = partition.usage_percent
-        self.query_one(".partition-percent", Label).update(
-            f"{partition.usage_percent:5.1f}%"
+        self.query_one(".partition-bar", Static).update(
+            make_progress_bar(partition.usage_percent)
         )
+        percent = partition.usage_percent
+        if percent < 50:
+            color = "#9ece6a"
+        elif percent < 80:
+            color = "#e0af68"
+        else:
+            color = "#f7768e"
+        self.query_one(".partition-percent", Static).update(f"[{color}]{percent:5.1f}%[/]")
 
 
 class GPUMonitorWidget(Widget):
@@ -75,45 +109,26 @@ class GPUMonitorWidget(Widget):
 
     DEFAULT_CSS = """
     GPUMonitorWidget {
-        border: solid $primary;
+        background: #24283b;
+        border: round #414868;
         height: auto;
-        padding: 0 1;
+        padding: 1 2;
+        margin: 0 0 1 0;
     }
 
     GPUMonitorWidget > .gpu-title {
+        color: #7aa2f7;
         text-style: bold;
-        color: $text;
         padding: 0 0 1 0;
     }
 
-    GPUMonitorWidget > .gpu-header {
-        layout: horizontal;
-        height: 1;
-        margin: 0 1;
-        color: $text-muted;
-    }
-
-    GPUMonitorWidget > .gpu-header .header-name {
-        width: 6;
-    }
-
-    GPUMonitorWidget > .gpu-header .header-alloc {
-        width: 10;
-        text-align: right;
-    }
-
-    GPUMonitorWidget > .gpu-header .header-usage {
-        width: 1fr;
-        text-align: center;
-    }
-
-    GPUMonitorWidget > .gpu-header .header-percent {
-        width: 7;
-        text-align: right;
+    GPUMonitorWidget > .gpu-subtitle {
+        color: #565f89;
+        padding: 0 0 1 0;
     }
 
     GPUMonitorWidget .no-data {
-        color: $text-muted;
+        color: #565f89;
         text-style: italic;
         padding: 1;
     }
@@ -133,11 +148,7 @@ class GPUMonitorWidget(Widget):
         self._timer = None
 
     def compose(self) -> ComposeResult:
-        yield Static("GPU Allocation (auto-refresh 10s)", classes="gpu-title")
-        yield Static(
-            "[Part  ] [Alloc   ] [Usage                ] [   %  ]",
-            classes="gpu-header",
-        )
+        yield Static("GPU Allocation", classes="gpu-title")
 
         if not self.partitions:
             yield Static("No partition data available", classes="no-data")

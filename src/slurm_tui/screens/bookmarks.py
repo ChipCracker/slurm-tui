@@ -16,35 +16,59 @@ class BookmarksScreen(ModalScreen):
     DEFAULT_CSS = """
     BookmarksScreen {
         align: center middle;
+        background: rgba(26, 27, 38, 0.85);
     }
 
     BookmarksScreen > Vertical {
         width: 80%;
         height: 80%;
-        border: thick $secondary;
-        background: $surface;
+        border: round #414868;
+        background: #24283b;
     }
 
     BookmarksScreen .bookmarks-title {
         text-style: bold;
         text-align: center;
         padding: 1;
-        background: $secondary-darken-2;
+        color: #bb9af7;
+        background: #1a1b26;
     }
 
     BookmarksScreen TabbedContent {
         height: 1fr;
+        background: #24283b;
+    }
+
+    BookmarksScreen Tabs {
+        background: #1a1b26;
+    }
+
+    BookmarksScreen Tab {
+        background: #1a1b26;
+        color: #565f89;
+    }
+
+    BookmarksScreen Tab.-active {
+        background: #24283b;
+        color: #bb9af7;
+    }
+
+    BookmarksScreen TabPane {
+        background: #24283b;
+        padding: 1;
     }
 
     BookmarksScreen DataTable {
         height: 1fr;
+        background: #24283b;
     }
 
     BookmarksScreen .bookmark-actions {
         height: auto;
         padding: 1;
         align: center middle;
-        background: $surface-darken-1;
+        background: #1a1b26;
+        border-top: solid #414868;
     }
 
     BookmarksScreen .bookmark-actions Button {
@@ -53,7 +77,7 @@ class BookmarksScreen(ModalScreen):
 
     BookmarksScreen .no-bookmarks {
         text-align: center;
-        color: $text-muted;
+        color: #565f89;
         padding: 2;
     }
     """

@@ -16,29 +16,42 @@ class JobTableWidget(Widget):
 
     DEFAULT_CSS = """
     JobTableWidget {
-        border: solid $primary;
+        background: #24283b;
+        border: round #414868;
         height: 1fr;
-        padding: 0 1;
+        padding: 1 2;
     }
 
-    JobTableWidget > .jobs-title {
-        text-style: bold;
-        color: $text;
+    JobTableWidget > .jobs-header {
+        layout: horizontal;
+        height: 1;
         padding: 0 0 1 0;
+    }
+
+    JobTableWidget > .jobs-header > .jobs-title {
+        width: 1fr;
+        color: #7aa2f7;
+        text-style: bold;
+    }
+
+    JobTableWidget > .jobs-header > .jobs-count {
+        width: auto;
+        color: #565f89;
     }
 
     JobTableWidget > .jobs-actions {
         height: 1;
-        color: $text-muted;
+        color: #565f89;
         padding: 1 0 0 0;
     }
 
     JobTableWidget > DataTable {
         height: 1fr;
+        background: transparent;
     }
 
     JobTableWidget .no-jobs {
-        color: $text-muted;
+        color: #565f89;
         text-style: italic;
         padding: 1;
     }
@@ -75,15 +88,19 @@ class JobTableWidget(Widget):
         self._selected_job: Job | None = None
 
     def compose(self) -> ComposeResult:
-        yield Static("My Jobs", classes="jobs-title")
+        from textual.containers import Horizontal
+
+        with Horizontal(classes="jobs-header"):
+            yield Static("Jobs", classes="jobs-title")
+            yield Static("", id="jobs-count", classes="jobs-count")
 
         table = DataTable(zebra_stripes=True)
         table.cursor_type = "row"
-        table.add_columns("JobID", "Name", "State", "Part", "GPUs", "CPUs", "Runtime", "Node")
+        table.add_columns("ID", "Name", "State", "Part", "GPU", "CPU", "Time", "Node")
         yield table
 
         yield Static(
-            "[a]ttach  [c]ancel  [d]etails  [u] toggle all users",
+            "[a]ttach [c]ancel [l]ogs [u]sers [b]ookmark",
             classes="jobs-actions",
         )
 
@@ -106,34 +123,39 @@ class JobTableWidget(Widget):
         table.clear()
 
         for job in self.jobs:
-            # Color-code state
+            # Modern status badges with colors
             state = job.state
             if state == "R":
-                state_display = "[green]R[/]"
+                state_display = "[#9ece6a bold]RUN[/]"
             elif state == "PD":
-                state_display = "[yellow]PD[/]"
+                state_display = "[#e0af68]PND[/]"
             elif state in ("CG", "CD"):
-                state_display = "[blue]" + state + "[/]"
+                state_display = "[#7aa2f7]" + state + "[/]"
+            elif state == "F":
+                state_display = "[#f7768e]FAIL[/]"
             else:
-                state_display = f"[red]{state}[/]"
+                state_display = f"[#565f89]{state}[/]"
+
+            # GPU count with color
+            gpu_display = f"[#bb9af7]{job.gpus}[/]" if job.gpus > 0 else "[#565f89]0[/]"
 
             table.add_row(
-                job.job_id,
-                job.name[:20],  # Truncate long names
+                f"[#7aa2f7]{job.job_id}[/]",
+                job.name[:18],
                 state_display,
                 job.partition,
-                str(job.gpus),
+                gpu_display,
                 str(job.cpus),
-                job.runtime,
-                job.node[:10] if job.node else "-",
+                f"[#565f89]{job.runtime}[/]",
+                job.node[:8] if job.node else "-",
             )
 
-        # Update title
-        title = self.query_one(".jobs-title", Static)
+        # Update count
+        count_label = self.query_one("#jobs-count", Static)
         if self.show_all_users:
-            title.update(f"All Jobs ({len(self.jobs)})")
+            count_label.update(f"all users ({len(self.jobs)})")
         else:
-            title.update(f"My Jobs ({len(self.jobs)})")
+            count_label.update(f"my jobs ({len(self.jobs)})")
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         """Handle row selection."""

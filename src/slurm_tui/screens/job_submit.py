@@ -24,13 +24,14 @@ class JobSubmitScreen(ModalScreen):
     DEFAULT_CSS = """
     JobSubmitScreen {
         align: center middle;
+        background: rgba(26, 27, 38, 0.85);
     }
 
     JobSubmitScreen > Vertical {
         width: 60;
         height: auto;
-        border: thick $primary;
-        background: $surface;
+        border: round #414868;
+        background: #24283b;
         padding: 1 2;
     }
 
@@ -38,25 +39,36 @@ class JobSubmitScreen(ModalScreen):
         text-style: bold;
         text-align: center;
         padding: 1;
+        color: #7aa2f7;
     }
 
     JobSubmitScreen .field-label {
         margin-top: 1;
+        color: #565f89;
     }
 
     JobSubmitScreen Input {
         margin-bottom: 1;
+        background: #1a1b26;
+        border: tall #414868;
+    }
+
+    JobSubmitScreen Input:focus {
+        border: tall #7aa2f7;
     }
 
     JobSubmitScreen Select {
         margin-bottom: 1;
+        background: #1a1b26;
     }
 
     JobSubmitScreen .buttons {
         layout: horizontal;
         align: center middle;
         height: auto;
-        margin-top: 1;
+        margin-top: 2;
+        padding-top: 1;
+        border-top: solid #414868;
     }
 
     JobSubmitScreen .buttons Button {
@@ -139,13 +151,14 @@ class InteractiveSessionScreen(ModalScreen):
     DEFAULT_CSS = """
     InteractiveSessionScreen {
         align: center middle;
+        background: rgba(26, 27, 38, 0.85);
     }
 
     InteractiveSessionScreen > Vertical {
         width: 60;
         height: auto;
-        border: thick $secondary;
-        background: $surface;
+        border: round #414868;
+        background: #24283b;
         padding: 1 2;
     }
 
@@ -153,25 +166,36 @@ class InteractiveSessionScreen(ModalScreen):
         text-style: bold;
         text-align: center;
         padding: 1;
+        color: #bb9af7;
     }
 
     InteractiveSessionScreen .field-label {
         margin-top: 1;
+        color: #565f89;
     }
 
     InteractiveSessionScreen Input {
         margin-bottom: 1;
+        background: #1a1b26;
+        border: tall #414868;
+    }
+
+    InteractiveSessionScreen Input:focus {
+        border: tall #bb9af7;
     }
 
     InteractiveSessionScreen Select {
         margin-bottom: 1;
+        background: #1a1b26;
     }
 
     InteractiveSessionScreen .buttons {
         layout: horizontal;
         align: center middle;
         height: auto;
-        margin-top: 1;
+        margin-top: 2;
+        padding-top: 1;
+        border-top: solid #414868;
     }
 
     InteractiveSessionScreen .buttons Button {
@@ -179,10 +203,11 @@ class InteractiveSessionScreen(ModalScreen):
     }
 
     InteractiveSessionScreen .command-preview {
-        background: $surface-darken-1;
+        background: #1a1b26;
         padding: 1;
         margin-top: 1;
-        border: solid $primary-darken-2;
+        border: round #414868;
+        color: #9ece6a;
     }
     """
 
@@ -282,13 +307,14 @@ class ConfirmCancelScreen(ModalScreen):
     DEFAULT_CSS = """
     ConfirmCancelScreen {
         align: center middle;
+        background: rgba(26, 27, 38, 0.85);
     }
 
     ConfirmCancelScreen > Vertical {
         width: 50;
         height: auto;
-        border: thick $error;
-        background: $surface;
+        border: round #f7768e;
+        background: #24283b;
         padding: 1 2;
     }
 
@@ -296,26 +322,31 @@ class ConfirmCancelScreen(ModalScreen):
         text-style: bold;
         text-align: center;
         padding: 1;
-        color: $error;
+        color: #f7768e;
     }
 
     ConfirmCancelScreen .message {
         text-align: center;
         padding: 1;
+        color: #c0caf5;
     }
 
     ConfirmCancelScreen .job-info {
         text-align: center;
         padding: 1;
-        background: $surface-darken-1;
+        background: #1a1b26;
+        border: round #414868;
         margin: 1 0;
+        color: #565f89;
     }
 
     ConfirmCancelScreen .buttons {
         layout: horizontal;
         align: center middle;
         height: auto;
-        margin-top: 1;
+        margin-top: 2;
+        padding-top: 1;
+        border-top: solid #414868;
     }
 
     ConfirmCancelScreen .buttons Button {
