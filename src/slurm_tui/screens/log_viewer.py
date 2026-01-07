@@ -141,20 +141,36 @@ class LogViewerScreen(ModalScreen):
         """Read log file and return content as string."""
         try:
             with open(path) as f:
-                lines = f.readlines()
+                content = f.read()
 
-            # Process lines: handle carriage returns (training progress)
-            processed_lines = []
-            for line in lines:
-                # Split by carriage return and keep only the last part
-                parts = line.split('\r')
-                processed_lines.append(parts[-1].rstrip())
+            # Simulate terminal behavior for carriage returns
+            # Process the content to handle \r (overwrites current line)
+            lines = []
+            current_line = ""
+
+            for char in content:
+                if char == '\r':
+                    # Carriage return: reset to beginning of current line
+                    current_line = ""
+                elif char == '\n':
+                    # Newline: finish current line and start new one
+                    lines.append(current_line)
+                    current_line = ""
+                else:
+                    current_line += char
+
+            # Don't forget the last line if it doesn't end with \n
+            if current_line:
+                lines.append(current_line)
+
+            # Filter out empty lines that come from progress bar overwrites
+            lines = [line for line in lines if line.strip()]
 
             # Show last N lines
-            if len(processed_lines) > tail:
-                processed_lines = [f"... ({len(processed_lines) - tail} lines omitted) ..."] + processed_lines[-tail:]
+            if len(lines) > tail:
+                lines = [f"... ({len(lines) - tail} lines omitted) ..."] + lines[-tail:]
 
-            return '\n'.join(processed_lines)
+            return '\n'.join(lines)
         except Exception as e:
             return f"Error reading log: {e}"
 
