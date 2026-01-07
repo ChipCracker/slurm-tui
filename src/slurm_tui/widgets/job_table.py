@@ -137,7 +137,11 @@ class JobTableWidget(Widget):
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         """Handle row selection."""
-        if event.row_key is not None and event.row_key.value < len(self.jobs):
+        if (
+            event.row_key is not None
+            and event.row_key.value is not None
+            and event.row_key.value < len(self.jobs)
+        ):
             self._selected_job = self.jobs[event.row_key.value]
             self.post_message(self.JobSelected(self._selected_job))
 
