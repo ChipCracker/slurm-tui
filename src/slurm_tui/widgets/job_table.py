@@ -121,7 +121,7 @@ class JobTableWidget(Widget):
 
         # Column header
         yield Static(
-            "     ID       Name                   State    GPU     Time",
+            "    ID       Name                   State    GPU     Time",
             classes="column-header",
         )
         yield Static("─" * 56, classes="header-separator")
@@ -129,7 +129,7 @@ class JobTableWidget(Widget):
         # Data table without header (we made our own)
         table = DataTable(zebra_stripes=False, show_header=False)
         table.cursor_type = "row"
-        table.add_columns("sel", "id", "name", "state", "gpu", "time")
+        table.add_columns("id", "name", "state", "gpu", "time")
         yield table
 
     def on_mount(self) -> None:
@@ -148,13 +148,9 @@ class JobTableWidget(Widget):
     def _update_table(self) -> None:
         """Update the data table with current jobs."""
         table = self.query_one(DataTable)
-        selected_row = table.cursor_row
         table.clear()
 
-        for i, job in enumerate(self.jobs):
-            # Selection indicator
-            sel = "▸" if i == selected_row else " "
-
+        for job in self.jobs:
             # Status symbol with color
             state = job.state
             symbol, color = STATUS_SYMBOLS.get(state, ("?", "#565f89"))
@@ -173,7 +169,6 @@ class JobTableWidget(Widget):
                 time_display = "[#414868]      —[/]"
 
             table.add_row(
-                f"[#7aa2f7]{sel}[/]",
                 f"[#c0caf5]{job.job_id:>7}[/]",
                 f"{job.name[:20]:<20}",
                 state_display,
@@ -197,9 +192,8 @@ class JobTableWidget(Widget):
             self.post_message(self.JobSelected(self._selected_job))
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
-        """Update selection indicator when cursor moves and notify of selection."""
-        self._update_table()
-        # Post message for job details panel
+        """Notify of selection when cursor moves."""
+        # Post message for job details panel (don't rebuild table - causes cursor reset)
         job = self.get_selected_job()
         if job:
             self.post_message(self.JobSelected(job))
