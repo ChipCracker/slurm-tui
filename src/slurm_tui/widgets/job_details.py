@@ -163,7 +163,12 @@ class JobDetailsWidget(Widget):
             pass
 
     def update_job(self, job: Job | None) -> None:
-        """Update the displayed job."""
+        """Update the displayed job (only if job changed)."""
+        # Only update if job actually changed
+        if self._current_job is not None and job is not None:
+            if self._current_job.job_id == job.job_id:
+                return  # Same job, don't reload
+
         self._current_job = job
         self._refresh_display()
 
