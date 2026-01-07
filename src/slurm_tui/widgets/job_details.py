@@ -74,11 +74,11 @@ class JobDetailsWidget(Widget):
         min-height: 5;
     }
 
-    JobDetailsWidget #script-area {
+    JobDetailsWidget .script-area {
         max-height: 40%;
     }
 
-    JobDetailsWidget #logs-area {
+    JobDetailsWidget .logs-area {
         height: 1fr;
     }
     """
@@ -92,6 +92,7 @@ class JobDetailsWidget(Widget):
         self.slurm_client = slurm_client or SlurmClient()
         self._current_job: Job | None = None
         self._is_own_job: bool = False
+        self._logs_area: TextArea | None = None
 
     def compose(self) -> ComposeResult:
         yield Static("Job Details", classes="details-title")
@@ -134,7 +135,7 @@ class JobDetailsWidget(Widget):
             language="bash",
             read_only=True,
             show_line_numbers=True,
-            id="script-area",
+            classes="script-area",
         )
         container.mount(script_area)
 
@@ -145,9 +146,10 @@ class JobDetailsWidget(Widget):
             stderr_content,
             read_only=True,
             show_line_numbers=True,
-            id="logs-area",
+            classes="logs-area",
         )
         container.mount(logs_area)
+        self._logs_area = logs_area  # Keep reference for scrolling
 
         # Scroll logs to end after mount
         self.call_after_refresh(self._scroll_logs_to_end)
@@ -155,8 +157,8 @@ class JobDetailsWidget(Widget):
     def _scroll_logs_to_end(self) -> None:
         """Scroll the logs area to the end."""
         try:
-            logs_area = self.query_one("#logs-area", TextArea)
-            logs_area.scroll_end(animate=False)
+            if hasattr(self, '_logs_area') and self._logs_area:
+                self._logs_area.scroll_end(animate=False)
         except Exception:
             pass
 
