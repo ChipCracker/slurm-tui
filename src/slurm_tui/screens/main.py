@@ -5,9 +5,9 @@ from __future__ import annotations
 import subprocess
 
 from textual.app import ComposeResult
-from textual.containers import Container, Horizontal, Vertical
+from textual.containers import Container, Horizontal
 from textual.screen import Screen
-from textual.widgets import Footer, Static
+from textual.widgets import Static
 
 from ..widgets import GPUMonitorWidget, GPUHoursWidget, JobTableWidget
 from ..utils.slurm import SlurmClient
@@ -22,32 +22,44 @@ class MainScreen(Screen):
     MainScreen {
         layout: grid;
         grid-size: 1;
-        grid-rows: auto auto 1fr auto;
-        padding: 1 2;
+        grid-rows: auto auto auto 1fr auto;
+        padding: 0;
         background: #1a1b26;
     }
 
-    MainScreen > .app-title {
+    MainScreen > .app-header {
+        layout: horizontal;
+        height: 1;
+        padding: 0 2;
+        margin-bottom: 1;
+    }
+
+    MainScreen > .app-header > .app-title {
+        width: 1fr;
         color: #7aa2f7;
         text-style: bold;
-        text-align: center;
-        padding: 0 0 1 0;
+    }
+
+    MainScreen > .app-header > .app-info {
+        width: auto;
+        color: #414868;
     }
 
     MainScreen > #top-panel {
         layout: horizontal;
         height: auto;
-        min-height: 8;
-        max-height: 12;
+        min-height: 6;
+        max-height: 10;
     }
 
     MainScreen > #top-panel > GPUMonitorWidget {
-        width: 2fr;
-        margin-right: 1;
+        width: 1fr;
     }
 
-    MainScreen > #top-panel > GPUHoursWidget {
-        width: 1fr;
+    MainScreen > #gpu-hours-panel {
+        height: auto;
+        min-height: 6;
+        max-height: 14;
     }
 
     MainScreen > #bottom-panel {
@@ -58,6 +70,13 @@ class MainScreen(Screen):
     MainScreen > #bottom-panel > JobTableWidget {
         width: 100%;
         height: 100%;
+    }
+
+    MainScreen > .keybindings {
+        height: 1;
+        padding: 0 2;
+        color: #565f89;
+        background: transparent;
     }
     """
 
@@ -83,25 +102,39 @@ class MainScreen(Screen):
         self.bookmark_manager = BookmarkManager()
 
     def compose(self) -> ComposeResult:
-        yield Static("SLURM TUI", classes="app-title")
+        # App header
+        with Horizontal(classes="app-header"):
+            yield Static("SLURM TUI", classes="app-title")
+            yield Static("10s refresh", classes="app-info")
 
-        with Horizontal(id="top-panel"):
+        # GPU Monitor (full width)
+        with Container(id="top-panel"):
             yield GPUMonitorWidget(
                 gpu_monitor=self.gpu_monitor,
                 refresh_interval=10.0,
             )
+
+        # GPU Hours
+        with Container(id="gpu-hours-panel"):
             yield GPUHoursWidget(
                 gpu_monitor=self.gpu_monitor,
                 refresh_interval=60.0,
             )
 
+        # Jobs table
         with Container(id="bottom-panel"):
             yield JobTableWidget(
                 slurm_client=self.slurm_client,
                 refresh_interval=10.0,
             )
 
-        yield Footer()
+        # Custom keybindings footer
+        yield Static(
+            "[#7aa2f7]a[/]ttach  [#7aa2f7]c[/]ancel  [#7aa2f7]l[/]ogs  "
+            "[#7aa2f7]n[/]ew  [#7aa2f7]i[/]nteractive  [#7aa2f7]u[/]sers  "
+            "[#7aa2f7]b[/]ookmarks  [#7aa2f7]e[/]ditor  [#7aa2f7]q[/]uit",
+            classes="keybindings",
+        )
 
     def action_quit(self) -> None:
         """Quit the application."""

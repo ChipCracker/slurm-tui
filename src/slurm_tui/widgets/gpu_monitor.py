@@ -3,18 +3,25 @@
 from __future__ import annotations
 
 from textual.app import ComposeResult
-from textual.containers import Vertical
+from textual.containers import Horizontal
 from textual.reactive import reactive
-from textual.widgets import Static, Label
+from textual.widgets import Static
 from textual.widget import Widget
 
 from ..utils.gpu import GPUMonitor, PartitionGPU
 
 
-def make_progress_bar(percent: float, width: int = 20) -> str:
-    """Create a text-based progress bar with modern characters."""
-    filled = int(percent / 100 * width)
-    empty = width - filled
+# Unicode block characters for gradient-style progress bar
+BLOCKS = " ▁▂▃▄▅▆▇█"
+
+
+def make_gradient_bar(percent: float, width: int = 25) -> str:
+    """Create a gradient-style progress bar with Unicode blocks."""
+    # Calculate filled and empty portions
+    filled_exact = percent / 100 * width
+    filled = int(filled_exact)
+    partial = filled_exact - filled
+    empty = width - filled - (1 if partial > 0 else 0)
 
     # Color based on usage
     if percent < 50:
@@ -24,84 +31,14 @@ def make_progress_bar(percent: float, width: int = 20) -> str:
     else:
         color = "#f7768e"  # red
 
-    bar = "▰" * filled + "▱" * empty
+    # Build the bar with gradient effect
+    bar = "█" * filled
+    if partial > 0:
+        partial_index = int(partial * (len(BLOCKS) - 1))
+        bar += BLOCKS[partial_index]
+    bar += "░" * empty
+
     return f"[{color}]{bar}[/]"
-
-
-class PartitionRow(Static):
-    """A single partition row with progress bar."""
-
-    DEFAULT_CSS = """
-    PartitionRow {
-        layout: horizontal;
-        height: 1;
-        padding: 0 1;
-    }
-
-    PartitionRow .partition-name {
-        width: 5;
-        color: #7aa2f7;
-        text-style: bold;
-    }
-
-    PartitionRow .partition-count {
-        width: 8;
-        text-align: right;
-        color: #565f89;
-    }
-
-    PartitionRow .partition-bar {
-        width: 24;
-        padding: 0 2;
-    }
-
-    PartitionRow .partition-percent {
-        width: 6;
-        text-align: right;
-    }
-    """
-
-    def __init__(self, partition: PartitionGPU):
-        super().__init__()
-        self.partition = partition
-
-    def compose(self) -> ComposeResult:
-        yield Label(self.partition.partition, classes="partition-name")
-        yield Label(
-            f"{self.partition.allocated:2}/{self.partition.total}",
-            classes="partition-count",
-        )
-        yield Static(
-            make_progress_bar(self.partition.usage_percent),
-            classes="partition-bar",
-        )
-        # Color the percentage based on usage
-        percent = self.partition.usage_percent
-        if percent < 50:
-            color = "#9ece6a"
-        elif percent < 80:
-            color = "#e0af68"
-        else:
-            color = "#f7768e"
-        yield Static(f"[{color}]{percent:5.1f}%[/]", classes="partition-percent")
-
-    def update_partition(self, partition: PartitionGPU) -> None:
-        """Update the partition data."""
-        self.partition = partition
-        self.query_one(".partition-count", Label).update(
-            f"{partition.allocated:2}/{partition.total}"
-        )
-        self.query_one(".partition-bar", Static).update(
-            make_progress_bar(partition.usage_percent)
-        )
-        percent = partition.usage_percent
-        if percent < 50:
-            color = "#9ece6a"
-        elif percent < 80:
-            color = "#e0af68"
-        else:
-            color = "#f7768e"
-        self.query_one(".partition-percent", Static).update(f"[{color}]{percent:5.1f}%[/]")
 
 
 class GPUMonitorWidget(Widget):
@@ -109,28 +46,64 @@ class GPUMonitorWidget(Widget):
 
     DEFAULT_CSS = """
     GPUMonitorWidget {
-        background: #24283b;
-        border: round #414868;
+        background: transparent;
+        border: none;
         height: auto;
-        padding: 1 2;
+        padding: 0 2;
         margin: 0 0 1 0;
     }
 
-    GPUMonitorWidget > .gpu-title {
-        color: #7aa2f7;
-        text-style: bold;
-        padding: 0 0 1 0;
+    GPUMonitorWidget > .section-header {
+        layout: horizontal;
+        height: 1;
+        margin-bottom: 0;
     }
 
-    GPUMonitorWidget > .gpu-subtitle {
+    GPUMonitorWidget > .section-header > .section-title {
+        width: 1fr;
         color: #565f89;
-        padding: 0 0 1 0;
+    }
+
+    GPUMonitorWidget > .section-header > .section-info {
+        width: auto;
+        color: #414868;
+    }
+
+    GPUMonitorWidget > .separator {
+        color: #414868;
+        margin-bottom: 1;
+    }
+
+    GPUMonitorWidget > .partition-row {
+        layout: horizontal;
+        height: 1;
+        padding: 0;
+    }
+
+    GPUMonitorWidget > .partition-row > .p-name {
+        width: 4;
+        color: #c0caf5;
+    }
+
+    GPUMonitorWidget > .partition-row > .p-count {
+        width: 7;
+        text-align: right;
+        color: #565f89;
+        padding-right: 2;
+    }
+
+    GPUMonitorWidget > .partition-row > .p-bar {
+        width: 27;
+    }
+
+    GPUMonitorWidget > .partition-row > .p-percent {
+        width: 6;
+        text-align: right;
     }
 
     GPUMonitorWidget .no-data {
         color: #565f89;
         text-style: italic;
-        padding: 1;
     }
     """
 
@@ -148,13 +121,35 @@ class GPUMonitorWidget(Widget):
         self._timer = None
 
     def compose(self) -> ComposeResult:
-        yield Static("GPU Allocation", classes="gpu-title")
+        # Section header
+        with Horizontal(classes="section-header"):
+            yield Static("GPU Allocation", classes="section-title")
+            yield Static(f"{int(self.refresh_interval)}s", classes="section-info")
+
+        # Separator line
+        yield Static("─" * 56, classes="separator")
 
         if not self.partitions:
             yield Static("No partition data available", classes="no-data")
         else:
             for partition in self.partitions:
-                yield PartitionRow(partition)
+                percent = partition.usage_percent
+                # Color for percentage
+                if percent < 50:
+                    color = "#9ece6a"
+                elif percent < 80:
+                    color = "#e0af68"
+                else:
+                    color = "#f7768e"
+
+                with Horizontal(classes="partition-row"):
+                    yield Static(f"{partition.partition}", classes="p-name")
+                    yield Static(
+                        f"{partition.allocated:2}/{partition.total:2}",
+                        classes="p-count",
+                    )
+                    yield Static(make_gradient_bar(percent), classes="p-bar")
+                    yield Static(f"[{color}]{percent:5.1f}%[/]", classes="p-percent")
 
     def on_mount(self) -> None:
         """Start auto-refresh timer on mount."""

@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from textual.app import ComposeResult
-from textual.containers import Vertical, Horizontal, Center
+from textual.containers import Vertical, Horizontal
 from textual.screen import ModalScreen
 from textual.widgets import (
     Static,
@@ -24,22 +24,26 @@ class JobSubmitScreen(ModalScreen):
     DEFAULT_CSS = """
     JobSubmitScreen {
         align: center middle;
-        background: rgba(26, 27, 38, 0.85);
+        background: rgba(26, 27, 38, 0.9);
     }
 
     JobSubmitScreen > Vertical {
         width: 60;
         height: auto;
-        border: round #414868;
-        background: #24283b;
+        background: #1a1b26;
         padding: 1 2;
     }
 
     JobSubmitScreen .title {
         text-style: bold;
         text-align: center;
-        padding: 1;
         color: #7aa2f7;
+        padding: 0 0 1 0;
+    }
+
+    JobSubmitScreen .separator {
+        color: #414868;
+        margin-bottom: 1;
     }
 
     JobSubmitScreen .field-label {
@@ -49,26 +53,26 @@ class JobSubmitScreen(ModalScreen):
 
     JobSubmitScreen Input {
         margin-bottom: 1;
-        background: #1a1b26;
-        border: tall #414868;
+        background: #1e2030;
+        border: none;
     }
 
     JobSubmitScreen Input:focus {
-        border: tall #7aa2f7;
+        background: #24283b;
     }
 
     JobSubmitScreen Select {
         margin-bottom: 1;
-        background: #1a1b26;
+        background: #1e2030;
+        border: none;
     }
 
     JobSubmitScreen .buttons {
         layout: horizontal;
         align: center middle;
         height: auto;
-        margin-top: 2;
+        margin-top: 1;
         padding-top: 1;
-        border-top: solid #414868;
     }
 
     JobSubmitScreen .buttons Button {
@@ -87,6 +91,7 @@ class JobSubmitScreen(ModalScreen):
     def compose(self) -> ComposeResult:
         with Vertical():
             yield Static("Submit SLURM Job", classes="title")
+            yield Static("─" * 56, classes="separator")
 
             yield Label("Script Path:", classes="field-label")
             yield Input(placeholder="/path/to/script.slurm", id="script-path")
@@ -111,6 +116,8 @@ class JobSubmitScreen(ModalScreen):
 
             yield Label("Memory per CPU:", classes="field-label")
             yield Input(value="10G", id="memory")
+
+            yield Static("─" * 56, classes="separator")
 
             with Horizontal(classes="buttons"):
                 yield Button("Cancel", variant="default", id="cancel")
@@ -151,22 +158,26 @@ class InteractiveSessionScreen(ModalScreen):
     DEFAULT_CSS = """
     InteractiveSessionScreen {
         align: center middle;
-        background: rgba(26, 27, 38, 0.85);
+        background: rgba(26, 27, 38, 0.9);
     }
 
     InteractiveSessionScreen > Vertical {
         width: 60;
         height: auto;
-        border: round #414868;
-        background: #24283b;
+        background: #1a1b26;
         padding: 1 2;
     }
 
     InteractiveSessionScreen .title {
         text-style: bold;
         text-align: center;
-        padding: 1;
         color: #bb9af7;
+        padding: 0 0 1 0;
+    }
+
+    InteractiveSessionScreen .separator {
+        color: #414868;
+        margin-bottom: 1;
     }
 
     InteractiveSessionScreen .field-label {
@@ -176,26 +187,26 @@ class InteractiveSessionScreen(ModalScreen):
 
     InteractiveSessionScreen Input {
         margin-bottom: 1;
-        background: #1a1b26;
-        border: tall #414868;
+        background: #1e2030;
+        border: none;
     }
 
     InteractiveSessionScreen Input:focus {
-        border: tall #bb9af7;
+        background: #24283b;
     }
 
     InteractiveSessionScreen Select {
         margin-bottom: 1;
-        background: #1a1b26;
+        background: #1e2030;
+        border: none;
     }
 
     InteractiveSessionScreen .buttons {
         layout: horizontal;
         align: center middle;
         height: auto;
-        margin-top: 2;
+        margin-top: 1;
         padding-top: 1;
-        border-top: solid #414868;
     }
 
     InteractiveSessionScreen .buttons Button {
@@ -203,10 +214,9 @@ class InteractiveSessionScreen(ModalScreen):
     }
 
     InteractiveSessionScreen .command-preview {
-        background: #1a1b26;
+        background: #1e2030;
         padding: 1;
         margin-top: 1;
-        border: round #414868;
         color: #9ece6a;
     }
     """
@@ -222,6 +232,7 @@ class InteractiveSessionScreen(ModalScreen):
     def compose(self) -> ComposeResult:
         with Vertical():
             yield Static("Interactive SLURM Session", classes="title")
+            yield Static("─" * 56, classes="separator")
 
             yield Label("Partition:", classes="field-label")
             yield Select(
@@ -245,6 +256,8 @@ class InteractiveSessionScreen(ModalScreen):
             yield Input(value="4G", id="memory")
 
             yield Static("", id="command-preview", classes="command-preview")
+
+            yield Static("─" * 56, classes="separator")
 
             with Horizontal(classes="buttons"):
                 yield Button("Cancel", variant="default", id="cancel")
@@ -307,22 +320,26 @@ class ConfirmCancelScreen(ModalScreen):
     DEFAULT_CSS = """
     ConfirmCancelScreen {
         align: center middle;
-        background: rgba(26, 27, 38, 0.85);
+        background: rgba(26, 27, 38, 0.9);
     }
 
     ConfirmCancelScreen > Vertical {
         width: 50;
         height: auto;
-        border: round #f7768e;
-        background: #24283b;
+        background: #1a1b26;
         padding: 1 2;
     }
 
     ConfirmCancelScreen .title {
         text-style: bold;
         text-align: center;
-        padding: 1;
         color: #f7768e;
+        padding: 0 0 1 0;
+    }
+
+    ConfirmCancelScreen .separator {
+        color: #414868;
+        margin-bottom: 1;
     }
 
     ConfirmCancelScreen .message {
@@ -334,8 +351,7 @@ class ConfirmCancelScreen(ModalScreen):
     ConfirmCancelScreen .job-info {
         text-align: center;
         padding: 1;
-        background: #1a1b26;
-        border: round #414868;
+        background: #1e2030;
         margin: 1 0;
         color: #565f89;
     }
@@ -344,9 +360,8 @@ class ConfirmCancelScreen(ModalScreen):
         layout: horizontal;
         align: center middle;
         height: auto;
-        margin-top: 2;
+        margin-top: 1;
         padding-top: 1;
-        border-top: solid #414868;
     }
 
     ConfirmCancelScreen .buttons Button {
@@ -367,7 +382,9 @@ class ConfirmCancelScreen(ModalScreen):
 
     def compose(self) -> ComposeResult:
         with Vertical():
-            yield Static("Cancel Job?", classes="title")
+            yield Static("✗ Cancel Job?", classes="title")
+            yield Static("─" * 46, classes="separator")
+
             yield Static("Are you sure you want to cancel this job?", classes="message")
             yield Static(
                 f"JobID: {self.job.job_id}\n"
@@ -375,6 +392,8 @@ class ConfirmCancelScreen(ModalScreen):
                 f"State: {self.job.state}",
                 classes="job-info",
             )
+
+            yield Static("─" * 46, classes="separator")
 
             with Horizontal(classes="buttons"):
                 yield Button("No", variant="default", id="no")

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from textual.app import ComposeResult
+from textual.containers import Horizontal
 from textual.message import Message
 from textual.reactive import reactive
 from textual.widgets import Static, DataTable
@@ -11,49 +12,71 @@ from textual.widget import Widget
 from ..utils.slurm import SlurmClient, Job
 
 
+# Status symbols with colors
+STATUS_SYMBOLS = {
+    "R": ("●", "#9ece6a"),    # Running - green
+    "PD": ("◐", "#e0af68"),   # Pending - yellow
+    "CD": ("✓", "#7aa2f7"),   # Completed - blue
+    "CG": ("✓", "#7aa2f7"),   # Completing - blue
+    "F": ("✗", "#f7768e"),    # Failed - red
+    "CA": ("⏹", "#565f89"),   # Cancelled - gray
+    "TO": ("⏱", "#f7768e"),   # Timeout - red
+    "NF": ("✗", "#f7768e"),   # Node Fail - red
+}
+
+
 class JobTableWidget(Widget):
     """Widget showing SLURM jobs in a table."""
 
     DEFAULT_CSS = """
     JobTableWidget {
-        background: #24283b;
-        border: round #414868;
+        background: transparent;
+        border: none;
         height: 1fr;
-        padding: 1 2;
+        padding: 0 2;
     }
 
-    JobTableWidget > .jobs-header {
+    JobTableWidget > .section-header {
         layout: horizontal;
         height: 1;
-        padding: 0 0 1 0;
+        margin-bottom: 0;
     }
 
-    JobTableWidget > .jobs-header > .jobs-title {
+    JobTableWidget > .section-header > .section-title {
         width: 1fr;
-        color: #7aa2f7;
-        text-style: bold;
+        color: #565f89;
     }
 
-    JobTableWidget > .jobs-header > .jobs-count {
+    JobTableWidget > .section-header > .section-info {
         width: auto;
-        color: #565f89;
+        color: #414868;
     }
 
-    JobTableWidget > .jobs-actions {
-        height: 1;
+    JobTableWidget > .separator {
+        color: #414868;
+        margin-bottom: 0;
+    }
+
+    JobTableWidget > .column-header {
         color: #565f89;
-        padding: 1 0 0 0;
+        height: 1;
+        padding: 0;
+    }
+
+    JobTableWidget > .header-separator {
+        color: #414868;
+        margin-bottom: 0;
     }
 
     JobTableWidget > DataTable {
         height: 1fr;
         background: transparent;
+        border: none;
     }
 
     JobTableWidget .no-jobs {
         color: #565f89;
         text-style: italic;
-        padding: 1;
     }
     """
 
@@ -88,21 +111,26 @@ class JobTableWidget(Widget):
         self._selected_job: Job | None = None
 
     def compose(self) -> ComposeResult:
-        from textual.containers import Horizontal
+        # Section header
+        with Horizontal(classes="section-header"):
+            yield Static("Jobs", classes="section-title")
+            yield Static("", id="jobs-count", classes="section-info")
 
-        with Horizontal(classes="jobs-header"):
-            yield Static("Jobs", classes="jobs-title")
-            yield Static("", id="jobs-count", classes="jobs-count")
+        # Separator line
+        yield Static("─" * 56, classes="separator")
 
-        table = DataTable(zebra_stripes=True)
-        table.cursor_type = "row"
-        table.add_columns("ID", "Name", "State", "Part", "GPU", "CPU", "Time", "Node")
-        yield table
-
+        # Column header
         yield Static(
-            "[a]ttach [c]ancel [l]ogs [u]sers [b]ookmark",
-            classes="jobs-actions",
+            "     ID       Name                   State    GPU     Time",
+            classes="column-header",
         )
+        yield Static("─" * 56, classes="header-separator")
+
+        # Data table without header (we made our own)
+        table = DataTable(zebra_stripes=False, show_header=False)
+        table.cursor_type = "row"
+        table.add_columns("sel", "id", "name", "state", "gpu", "time")
+        yield table
 
     def on_mount(self) -> None:
         """Start timer and load initial data."""
@@ -120,42 +148,43 @@ class JobTableWidget(Widget):
     def _update_table(self) -> None:
         """Update the data table with current jobs."""
         table = self.query_one(DataTable)
+        selected_row = table.cursor_row
         table.clear()
 
-        for job in self.jobs:
-            # Modern status badges with colors
-            state = job.state
-            if state == "R":
-                state_display = "[#9ece6a bold]RUN[/]"
-            elif state == "PD":
-                state_display = "[#e0af68]PND[/]"
-            elif state in ("CG", "CD"):
-                state_display = "[#7aa2f7]" + state + "[/]"
-            elif state == "F":
-                state_display = "[#f7768e]FAIL[/]"
-            else:
-                state_display = f"[#565f89]{state}[/]"
+        for i, job in enumerate(self.jobs):
+            # Selection indicator
+            sel = "▸" if i == selected_row else " "
 
-            # GPU count with color
-            gpu_display = f"[#bb9af7]{job.gpus}[/]" if job.gpus > 0 else "[#565f89]0[/]"
+            # Status symbol with color
+            state = job.state
+            symbol, color = STATUS_SYMBOLS.get(state, ("?", "#565f89"))
+            state_display = f"[{color}]{symbol}[/] [{color}]{state:3}[/]"
+
+            # GPU with color
+            if job.gpus > 0:
+                gpu_display = f"[#bb9af7]{job.gpus:2}[/]"
+            else:
+                gpu_display = "[#414868] -[/]"
+
+            # Time format
+            if job.runtime and job.runtime != "0:00":
+                time_display = f"[#565f89]{job.runtime:>8}[/]"
+            else:
+                time_display = "[#414868]      —[/]"
 
             table.add_row(
-                f"[#7aa2f7]{job.job_id}[/]",
-                job.name[:18],
+                f"[#7aa2f7]{sel}[/]",
+                f"[#c0caf5]{job.job_id:>7}[/]",
+                f"{job.name[:20]:<20}",
                 state_display,
-                job.partition,
                 gpu_display,
-                str(job.cpus),
-                f"[#565f89]{job.runtime}[/]",
-                job.node[:8] if job.node else "-",
+                time_display,
             )
 
         # Update count
         count_label = self.query_one("#jobs-count", Static)
-        if self.show_all_users:
-            count_label.update(f"all users ({len(self.jobs)})")
-        else:
-            count_label.update(f"my jobs ({len(self.jobs)})")
+        mode = "all" if self.show_all_users else "my jobs"
+        count_label.update(f"{mode} ({len(self.jobs)})")
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         """Handle row selection."""
@@ -166,6 +195,10 @@ class JobTableWidget(Widget):
         ):
             self._selected_job = self.jobs[event.row_key.value]
             self.post_message(self.JobSelected(self._selected_job))
+
+    def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
+        """Update selection indicator when cursor moves."""
+        self._update_table()
 
     def get_selected_job(self) -> Job | None:
         """Get the currently selected job."""

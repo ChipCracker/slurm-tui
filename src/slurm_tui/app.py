@@ -14,10 +14,10 @@ class SlurmTUI(App):
     SUB_TITLE = "GPU Cluster Management"
 
     CSS = """
-    /* Tokyo Night Color Scheme */
+    /* Tokyo Night Color Scheme - Borderless Modern */
     $background: #1a1b26;
-    $surface: #24283b;
-    $surface-light: #414868;
+    $surface: #1a1b26;
+    $surface-alt: #1e2030;
     $primary: #7aa2f7;
     $secondary: #bb9af7;
     $success: #9ece6a;
@@ -25,70 +25,64 @@ class SlurmTUI(App):
     $error: #f7768e;
     $text: #c0caf5;
     $text-muted: #565f89;
-    $border: #414868;
+    $separator: #414868;
 
     Screen {
         background: $background;
     }
 
-    /* Minimal Footer */
+    /* Borderless Footer - just keybindings */
     Footer {
-        background: $surface;
+        background: $background;
         color: $text-muted;
         height: 1;
+        border: none;
     }
 
     Footer > .footer--key {
-        background: $surface-light;
+        background: transparent;
         color: $primary;
     }
 
-    /* DataTable - Clean look */
+    Footer > .footer--description {
+        color: $text-muted;
+    }
+
+    /* DataTable - Borderless with subtle selection */
     DataTable {
-        background: $surface;
-        scrollbar-background: $surface;
-        scrollbar-color: $surface-light;
+        background: $background;
+        border: none;
+        scrollbar-background: $background;
+        scrollbar-color: $separator;
     }
 
     DataTable > .datatable--cursor {
-        background: $surface-light;
+        background: $surface-alt;
         color: $text;
     }
 
     DataTable > .datatable--header {
-        background: $surface;
-        color: $primary;
-        text-style: bold;
+        background: $background;
+        color: $text-muted;
+        text-style: none;
+        border-bottom: none;
     }
 
     DataTable > .datatable--even-row {
-        background: $surface;
+        background: $background;
     }
 
     DataTable > .datatable--odd-row {
-        background: #1e2030;
+        background: $background;
     }
 
-    /* Progress bars */
-    ProgressBar {
-        padding: 0;
-    }
-
-    ProgressBar > .bar--bar {
-        color: $success;
-        background: $surface-light;
-    }
-
-    ProgressBar > .bar--complete {
-        color: $success;
-    }
-
-    /* Buttons */
+    /* Buttons - Minimal */
     Button {
-        background: $surface-light;
+        background: $surface-alt;
         color: $text;
         border: none;
-        min-width: 10;
+        min-width: 8;
+        padding: 0 2;
     }
 
     Button:hover {
@@ -111,73 +105,89 @@ class SlurmTUI(App):
         color: $background;
     }
 
-    /* Input fields */
+    /* Input fields - Borderless */
     Input {
-        background: $surface;
-        border: tall $border;
+        background: $surface-alt;
+        border: none;
         padding: 0 1;
     }
 
     Input:focus {
-        border: tall $primary;
+        background: #24283b;
     }
 
-    /* Select */
+    /* Select - Borderless */
     Select {
-        background: $surface;
-        border: tall $border;
+        background: $surface-alt;
+        border: none;
     }
 
     Select:focus {
-        border: tall $primary;
+        background: #24283b;
     }
 
-    /* TextArea */
+    /* TextArea - Borderless */
     TextArea {
-        background: $surface;
-        border: round $border;
+        background: $background;
+        border: none;
     }
 
-    /* TabbedContent */
+    /* TabbedContent - Minimal */
     TabbedContent {
-        background: $surface;
+        background: $background;
     }
 
     Tabs {
-        background: $surface;
+        background: $background;
+        border-bottom: solid $separator;
     }
 
     Tab {
-        background: $surface;
+        background: $background;
         color: $text-muted;
         padding: 0 2;
+        border: none;
     }
 
     Tab.-active {
-        background: $surface-light;
+        background: $background;
         color: $primary;
+        text-style: bold;
     }
 
     Tab:hover {
-        background: $surface-light;
-    }
-
-    TabPane {
-        background: $surface;
-        padding: 1;
-    }
-
-    /* Toast notifications */
-    Toast {
-        background: $surface;
-        border: round $primary;
         color: $text;
     }
 
-    /* Scrollbars */
+    TabPane {
+        background: $background;
+        padding: 1 0;
+    }
+
+    /* Toast notifications - Minimal */
+    Toast {
+        background: $surface-alt;
+        border: none;
+        color: $text;
+    }
+
+    /* Scrollbars - Subtle */
     Vertical:focus-within > ScrollBar,
     Horizontal:focus-within > ScrollBar {
-        background: $surface;
+        background: $background;
+    }
+
+    /* Separator line style */
+    .separator {
+        color: $separator;
+        height: 1;
+    }
+
+    /* Section title style */
+    .section-title {
+        color: $text-muted;
+        text-style: none;
+        padding: 0;
     }
     """
 

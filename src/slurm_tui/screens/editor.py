@@ -28,16 +28,19 @@ class EditorScreen(Screen):
     EditorScreen .editor-title {
         text-style: bold;
         text-align: center;
-        padding: 1;
+        padding: 1 0 0 0;
         color: #9ece6a;
-        background: #24283b;
+    }
+
+    EditorScreen .separator {
+        color: #414868;
+        padding: 0 2;
     }
 
     EditorScreen .editor-header {
         layout: horizontal;
         height: auto;
         padding: 0 2;
-        background: #24283b;
     }
 
     EditorScreen .editor-header .filename {
@@ -60,9 +63,7 @@ class EditorScreen(Screen):
         layout: horizontal;
         height: auto;
         padding: 1;
-        background: #24283b;
         align: center middle;
-        border-top: solid #414868;
     }
 
     EditorScreen .editor-footer Button {
@@ -72,19 +73,17 @@ class EditorScreen(Screen):
     EditorScreen .file-picker {
         layout: horizontal;
         height: auto;
-        padding: 1;
-        background: #24283b;
-        border-bottom: solid #414868;
+        padding: 1 2;
     }
 
     EditorScreen .file-picker Input {
         width: 1fr;
-        background: #1a1b26;
-        border: tall #414868;
+        background: #1e2030;
+        border: none;
     }
 
     EditorScreen .file-picker Input:focus {
-        border: tall #9ece6a;
+        background: #24283b;
     }
 
     EditorScreen .file-picker Button {
