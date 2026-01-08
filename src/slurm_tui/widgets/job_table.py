@@ -216,7 +216,7 @@ class JobTableWidget(Widget):
     def get_selected_job(self) -> Job | None:
         """Get the currently selected job."""
         table = self.query_one(DataTable)
-        if table.cursor_row is not None and table.cursor_row < len(self.jobs):
+        if table.cursor_row is not None and 0 <= table.cursor_row < len(self.jobs):
             return self.jobs[table.cursor_row]
         return None
 
