@@ -150,6 +150,7 @@ class MainScreen(Screen):
             # Right panel - Job details
             yield JobDetailsWidget(
                 slurm_client=self.slurm_client,
+                bookmark_manager=self.bookmark_manager,
                 id="details-panel",
             )
 

@@ -11,6 +11,7 @@ from textual.widgets import Static, TextArea
 from textual.widget import Widget
 
 from ..utils.slurm import SlurmClient, Job
+from ..utils.bookmarks import BookmarkManager
 
 
 class JobDetailsWidget(Widget):
@@ -108,15 +109,18 @@ class JobDetailsWidget(Widget):
 
     BINDINGS = [
         ("ctrl+s", "save_script", "Save Script"),
+        ("b", "bookmark_script", "Bookmark Script"),
     ]
 
     def __init__(
         self,
         slurm_client: SlurmClient | None = None,
+        bookmark_manager: BookmarkManager | None = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.slurm_client = slurm_client or SlurmClient()
+        self.bookmark_manager = bookmark_manager or BookmarkManager()
         self._current_job: Job | None = None
         self._is_own_job: bool = False
         self._logs_area: TextArea | None = None
@@ -360,3 +364,14 @@ class JobDetailsWidget(Widget):
     def action_save_script(self) -> None:
         """Action to save script (Ctrl+S)."""
         self.save_script()
+
+    def action_bookmark_script(self) -> None:
+        """Bookmark the current script (B key)."""
+        if not self._script_path:
+            self.notify("No script to bookmark", severity="warning")
+            return
+
+        if self.bookmark_manager.add_script(self._script_path):
+            self.notify(f"Bookmarked: {os.path.basename(self._script_path)}")
+        else:
+            self.notify("Already bookmarked", severity="warning")
