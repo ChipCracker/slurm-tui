@@ -69,19 +69,46 @@ class JobDetailsWidget(Widget):
 
     JobDetailsWidget TextArea {
         height: 1fr;
-        background: transparent;
-        border: none;
+        background: #1e2030;
+        border: solid #414868;
         min-height: 5;
+    }
+
+    JobDetailsWidget TextArea:focus {
+        border: solid #7aa2f7;
+        background: #24283b;
     }
 
     JobDetailsWidget .script-area {
         max-height: 40%;
     }
 
+    JobDetailsWidget .script-area:focus {
+        border: solid #9ece6a;
+    }
+
     JobDetailsWidget .logs-area {
         height: 1fr;
     }
+
+    JobDetailsWidget .script-modified {
+        border: solid #e0af68;
+    }
+
+    JobDetailsWidget .script-header {
+        color: #565f89;
+        margin-top: 1;
+        height: auto;
+    }
+
+    JobDetailsWidget .script-header-modified {
+        color: #e0af68;
+    }
     """
+
+    BINDINGS = [
+        ("ctrl+s", "save_script", "Save Script"),
+    ]
 
     def __init__(
         self,
@@ -93,6 +120,10 @@ class JobDetailsWidget(Widget):
         self._current_job: Job | None = None
         self._is_own_job: bool = False
         self._logs_area: TextArea | None = None
+        self._script_area: TextArea | None = None
+        self._script_path: str | None = None
+        self._original_script: str = ""
+        self._script_modified: bool = False
 
     def compose(self) -> ComposeResult:
         yield Static("Job Details", classes="details-title")
@@ -121,23 +152,27 @@ class JobDetailsWidget(Widget):
         container = self.query_one("#content-container", Vertical)
 
         # Get script path and content
-        script_path = self._get_script_path()
+        self._script_path = self._get_script_path()
         script_content = self._get_script_content()
         stderr_content = self._get_stderr_content()
+        self._original_script = script_content
+        self._script_modified = False
 
-        # Mount content
-        container.mount(Static("Script", classes="section-label"))
-        container.mount(Static(f"{script_path or 'N/A'}", classes="script-path"))
+        # Mount content - script header with edit hint
+        container.mount(Static("Script [Ctrl+S to save]", classes="script-header"))
+        container.mount(Static(f"{self._script_path or 'N/A'}", classes="script-path"))
         container.mount(Static("─" * 40, classes="separator"))
 
+        # Editable script area
         script_area = TextArea(
             script_content,
             language="bash",
-            read_only=True,
+            read_only=False,  # Editable!
             show_line_numbers=True,
             classes="script-area",
         )
         container.mount(script_area)
+        self._script_area = script_area  # Keep reference for saving
 
         container.mount(Static("Logs (stderr)", classes="section-label"))
         container.mount(Static("─" * 40, classes="separator"))
@@ -278,3 +313,50 @@ class JobDetailsWidget(Widget):
         """Refresh the log content."""
         if self._current_job and self._is_own_job:
             self._refresh_display()
+
+    def on_text_area_changed(self, event: TextArea.Changed) -> None:
+        """Track script modifications."""
+        if self._script_area and event.text_area == self._script_area:
+            is_modified = self._script_area.text != self._original_script
+            if is_modified != self._script_modified:
+                self._script_modified = is_modified
+                self._update_modified_indicator()
+
+    def _update_modified_indicator(self) -> None:
+        """Update visual indicator for modified script."""
+        try:
+            header = self.query_one(".script-header", Static)
+            if self._script_modified:
+                header.update("Script [modified] [Ctrl+S to save]")
+                header.add_class("script-header-modified")
+                if self._script_area:
+                    self._script_area.add_class("script-modified")
+            else:
+                header.update("Script [Ctrl+S to save]")
+                header.remove_class("script-header-modified")
+                if self._script_area:
+                    self._script_area.remove_class("script-modified")
+        except Exception:
+            pass
+
+    def save_script(self) -> bool:
+        """Save the script to disk."""
+        if not self._script_path or not self._script_area:
+            self.notify("No script to save", severity="warning")
+            return False
+
+        try:
+            with open(self._script_path, "w") as f:
+                f.write(self._script_area.text)
+            self._original_script = self._script_area.text
+            self._script_modified = False
+            self._update_modified_indicator()
+            self.notify(f"Saved: {os.path.basename(self._script_path)}")
+            return True
+        except Exception as e:
+            self.notify(f"Error saving: {e}", severity="error")
+            return False
+
+    def action_save_script(self) -> None:
+        """Action to save script (Ctrl+S)."""
+        self.save_script()
