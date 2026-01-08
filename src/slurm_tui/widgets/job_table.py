@@ -140,12 +140,19 @@ class JobTableWidget(Widget):
     def refresh_data(self) -> None:
         """Refresh job data."""
         try:
+            # Save current selection before fetching new data
+            table = self.query_one(DataTable)
+            old_cursor_row = table.cursor_row
+            old_job_id = None
+            if old_cursor_row is not None and old_cursor_row < len(self.jobs):
+                old_job_id = self.jobs[old_cursor_row].job_id
+
             self.jobs = self.slurm_client.get_jobs(all_users=self.show_all_users)
-            self._update_table()
+            self._update_table(old_job_id)
         except Exception:
             pass
 
-    def _update_table(self) -> None:
+    def _update_table(self, old_job_id: str | None = None) -> None:
         """Update the data table with current jobs."""
         table = self.query_one(DataTable)
         table.clear()
@@ -180,6 +187,14 @@ class JobTableWidget(Widget):
         count_label = self.query_one("#jobs-count", Static)
         mode = "all" if self.show_all_users else "my jobs"
         count_label.update(f"{mode} ({len(self.jobs)})")
+
+        # Restore cursor position
+        if old_job_id is not None:
+            # Find the job by ID in the new list
+            for i, job in enumerate(self.jobs):
+                if job.job_id == old_job_id:
+                    table.move_cursor(row=i)
+                    break
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         """Handle row selection."""
