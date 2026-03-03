@@ -14,44 +14,7 @@ from textual.worker import get_current_worker
 
 from ..utils.slurm import SlurmClient, Job
 from ..utils.bookmarks import BookmarkManager
-
-
-def _read_log_file(path: str, tail: int = 500) -> str:
-    """Read log file tail efficiently with terminal simulation for carriage returns."""
-    file_size = os.path.getsize(path)
-
-    # For large files, only read the tail portion
-    tail_bytes = 512 * 1024  # 512KB
-    truncated = False
-
-    with open(path, "rb") as f:
-        if file_size > tail_bytes:
-            f.seek(-tail_bytes, 2)
-            f.readline()  # Skip partial first line
-            truncated = True
-        content = f.read().decode("utf-8", errors="replace")
-
-    # Process carriage returns efficiently using string split
-    result_lines = []
-    for raw_line in content.split("\n"):
-        if "\r" in raw_line:
-            # Take the last segment after \r (simulates terminal overwrite)
-            final = raw_line.rsplit("\r", 1)[-1]
-            if final.strip():
-                result_lines.append(final)
-        elif raw_line.strip():
-            result_lines.append(raw_line)
-
-    # Limit to last N lines
-    if len(result_lines) > tail:
-        result_lines = (
-            [f"... ({len(result_lines) - tail} lines omitted) ..."]
-            + result_lines[-tail:]
-        )
-    elif truncated:
-        result_lines = ["... (showing tail of large file) ..."] + result_lines
-
-    return "\n".join(result_lines)
+from ..utils.log_reader import read_log_file
 
 
 class JobDetailsWidget(Widget):
@@ -270,7 +233,7 @@ class JobDetailsWidget(Widget):
         stderr_content = "No stderr log available"
         if stderr_path and os.path.exists(stderr_path):
             try:
-                stderr_content = _read_log_file(stderr_path)
+                stderr_content = read_log_file(stderr_path)
             except Exception as e:
                 stderr_content = f"Error reading log: {e}"
 
