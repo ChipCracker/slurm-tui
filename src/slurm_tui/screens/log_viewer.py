@@ -16,36 +16,32 @@ from ..utils.slurm import SlurmClient, Job
 
 
 def _read_log_file(path: str, tail: int = 1000) -> str:
-    """Read log file tail efficiently with terminal simulation for carriage returns."""
+    """Read log file tail efficiently with terminal simulation for carriage returns.
+
+    tqdm writes progress bars using \\r without \\n, so a training log can
+    contain megabytes of data on a single "line".  We split on both \\n and
+    \\r to handle this correctly.
+    """
     try:
         file_size = os.path.getsize(path)
 
         # For large files, only read the tail portion
-        tail_bytes = 1024 * 1024  # 1MB for log viewer (more than details panel)
+        tail_bytes = 2 * 1024 * 1024  # 2MB
         truncated = False
 
         with open(path, "rb") as f:
             if file_size > tail_bytes:
                 f.seek(-tail_bytes, 2)
-                f.readline()  # Skip partial first line
                 truncated = True
-            content = f.read().decode("utf-8", errors="replace")
+            raw = f.read()
 
-        # Process carriage returns: take last \r segment (simulates terminal overwrite)
-        result_lines = []
-        for raw_line in content.split("\n"):
-            if "\r" in raw_line:
-                # Take the last non-empty segment after \r
-                segments = raw_line.split("\r")
-                final = ""
-                for seg in reversed(segments):
-                    if seg.strip():
-                        final = seg
-                        break
-                if final:
-                    result_lines.append(final)
-            elif raw_line.strip():
-                result_lines.append(raw_line)
+        content = raw.decode("utf-8", errors="replace")
+
+        # Split on both \n and \r — tqdm uses \r as line separator
+        result_lines = [
+            seg for seg in content.replace("\r", "\n").split("\n")
+            if seg.strip()
+        ]
 
         # Limit to last N lines
         if len(result_lines) > tail:
