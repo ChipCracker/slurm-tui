@@ -31,12 +31,18 @@ def _read_log_file(path: str, tail: int = 1000) -> str:
                 truncated = True
             content = f.read().decode("utf-8", errors="replace")
 
-        # Process carriage returns efficiently using string split
+        # Process carriage returns: take last \r segment (simulates terminal overwrite)
         result_lines = []
         for raw_line in content.split("\n"):
             if "\r" in raw_line:
-                final = raw_line.rsplit("\r", 1)[-1]
-                if final.strip():
+                # Take the last non-empty segment after \r
+                segments = raw_line.split("\r")
+                final = ""
+                for seg in reversed(segments):
+                    if seg.strip():
+                        final = seg
+                        break
+                if final:
                     result_lines.append(final)
             elif raw_line.strip():
                 result_lines.append(raw_line)
