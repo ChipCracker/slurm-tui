@@ -27,11 +27,15 @@ def read_log_file(path: str, tail: int = 1000) -> str:
 
         content = raw.decode("utf-8", errors="replace")
 
-        # Split on both \n and \r — tqdm uses \r as line separator
-        result_lines = [
-            seg for seg in content.replace("\r", "\n").split("\n")
-            if seg.strip()
-        ]
+        # Simulate terminal \r behaviour: keep only the last \r-segment per line
+        result_lines = []
+        for raw_line in content.split("\n"):
+            if "\r" in raw_line:
+                final = raw_line.rsplit("\r", 1)[-1]
+                if final.strip():
+                    result_lines.append(final)
+            elif raw_line.strip():
+                result_lines.append(raw_line)
 
         # Limit to last N lines
         if len(result_lines) > tail:
