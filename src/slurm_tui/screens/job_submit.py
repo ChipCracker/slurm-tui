@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 from textual.app import ComposeResult
@@ -307,8 +308,10 @@ class InteractiveSessionScreen(ModalScreen):
             memory=memory,
         )
 
-        # Exit the TUI and show the command to run
-        self.app.exit(message=f"Run the following command:\n{' '.join(cmd)}")
+        # Suspend the TUI, run the interactive session, resume on exit
+        self.app.pop_screen()
+        with self.app.suspend():
+            subprocess.run(cmd)
 
     def action_cancel(self) -> None:
         self.app.pop_screen()

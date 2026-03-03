@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import subprocess
+
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, Vertical
 from textual.screen import Screen
@@ -210,13 +212,9 @@ class MainScreen(Screen):
 
         cmd = self.slurm_client.attach_to_job(job.job_id)
 
-        # Open embedded terminal modal
-        try:
-            from .terminal import TerminalScreen
-        except ImportError:
-            self.notify("Terminal screen not yet implemented", severity="warning")
-            return
-        self.app.push_screen(TerminalScreen(job, cmd))
+        # Suspend the TUI, hand control to the real terminal, resume on exit
+        with self.app.suspend():
+            subprocess.run(cmd)
 
     def action_cancel(self) -> None:
         """Cancel selected job."""
