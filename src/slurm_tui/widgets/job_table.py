@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from textual import work
 from textual.app import ComposeResult
 from textual.containers import Horizontal
 from textual.message import Message
 from textual.reactive import reactive
 from textual.widgets import Static, DataTable
 from textual.widget import Widget
+from textual.worker import get_current_worker
 
 from ..utils.slurm import SlurmClient, Job
 
@@ -137,17 +139,26 @@ class JobTableWidget(Widget):
         self.refresh_data()
         self._timer = self.set_interval(self.refresh_interval, self.refresh_data)
 
+    @work(thread=True, exclusive=True)
     def refresh_data(self) -> None:
-        """Refresh job data."""
+        """Refresh job data in background thread."""
+        worker = get_current_worker()
         try:
-            # Save current selection before fetching new data
+            jobs = self.slurm_client.get_jobs(all_users=self.show_all_users)
+            if not worker.is_cancelled:
+                self.app.call_from_thread(self._apply_refresh, jobs)
+        except Exception:
+            pass
+
+    def _apply_refresh(self, jobs: list[Job]) -> None:
+        """Apply refreshed job data on the main thread."""
+        try:
             table = self.query_one(DataTable)
             old_cursor_row = table.cursor_row
             old_job_id = None
             if old_cursor_row is not None and old_cursor_row < len(self.jobs):
                 old_job_id = self.jobs[old_cursor_row].job_id
-
-            self.jobs = self.slurm_client.get_jobs(all_users=self.show_all_users)
+            self.jobs = jobs
             self._update_table(old_job_id)
         except Exception:
             pass

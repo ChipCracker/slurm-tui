@@ -5,11 +5,13 @@ from __future__ import annotations
 import os
 from datetime import datetime
 
+from textual import work
 from textual.app import ComposeResult
 from textual.containers import Horizontal
 from textual.reactive import reactive
 from textual.widgets import Static
 from textual.widget import Widget
+from textual.worker import get_current_worker
 
 from ..utils.gpu import GPUMonitor, GPUHoursEntry
 
@@ -169,9 +171,13 @@ class GPUHoursWidget(Widget):
         self.refresh_data()
         self._timer = self.set_interval(self.refresh_interval, self.refresh_data)
 
+    @work(thread=True, exclusive=True)
     def refresh_data(self) -> None:
-        """Refresh GPU hours data."""
+        """Refresh GPU hours data in background thread."""
+        worker = get_current_worker()
         try:
-            self.entries = self.gpu_monitor.get_gpu_hours(limit=10)
+            entries = self.gpu_monitor.get_gpu_hours(limit=10)
+            if not worker.is_cancelled:
+                self.app.call_from_thread(setattr, self, "entries", entries)
         except Exception:
             pass

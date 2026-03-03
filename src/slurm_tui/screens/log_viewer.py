@@ -3,15 +3,56 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 
+from textual import work
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.reactive import reactive
 from textual.screen import ModalScreen
 from textual.widgets import Static, TextArea, Button, TabbedContent, TabPane
+from textual.worker import get_current_worker
 
 from ..utils.slurm import SlurmClient, Job
+
+
+def _read_log_file(path: str, tail: int = 1000) -> str:
+    """Read log file tail efficiently with terminal simulation for carriage returns."""
+    try:
+        file_size = os.path.getsize(path)
+
+        # For large files, only read the tail portion
+        tail_bytes = 1024 * 1024  # 1MB for log viewer (more than details panel)
+        truncated = False
+
+        with open(path, "rb") as f:
+            if file_size > tail_bytes:
+                f.seek(-tail_bytes, 2)
+                f.readline()  # Skip partial first line
+                truncated = True
+            content = f.read().decode("utf-8", errors="replace")
+
+        # Process carriage returns efficiently using string split
+        result_lines = []
+        for raw_line in content.split("\n"):
+            if "\r" in raw_line:
+                final = raw_line.rsplit("\r", 1)[-1]
+                if final.strip():
+                    result_lines.append(final)
+            elif raw_line.strip():
+                result_lines.append(raw_line)
+
+        # Limit to last N lines
+        if len(result_lines) > tail:
+            result_lines = (
+                [f"... ({len(result_lines) - tail} lines omitted) ..."]
+                + result_lines[-tail:]
+            )
+        elif truncated:
+            result_lines = ["... (showing tail of large file) ..."] + result_lines
+
+        return "\n".join(result_lines)
+    except Exception as e:
+        return f"Error reading log: {e}"
 
 
 class LogViewerScreen(ModalScreen):
@@ -142,65 +183,39 @@ class LogViewerScreen(ModalScreen):
             self.job.job_id
         )
 
+    @work(thread=True, exclusive=True)
     def _load_logs(self) -> None:
-        """Load log file contents."""
-        stdout_log = self.query_one("#stdout-log", TextArea)
-        stderr_log = self.query_one("#stderr-log", TextArea)
+        """Load log file contents in background thread."""
+        worker = get_current_worker()
 
-        # Load stderr
+        stderr_content = "No stderr log available"
         if self.stderr_path and os.path.exists(self.stderr_path):
-            content = self._read_log_file(self.stderr_path)
-            stderr_log.load_text(content)
-            # Scroll to end
-            stderr_log.scroll_end(animate=False)
-        else:
-            stderr_log.load_text("No stderr log available")
+            stderr_content = _read_log_file(self.stderr_path)
 
-        # Load stdout
+        if worker.is_cancelled:
+            return
+
+        stdout_content = "No stdout log available"
         if self.stdout_path and os.path.exists(self.stdout_path):
-            content = self._read_log_file(self.stdout_path)
-            stdout_log.load_text(content)
-            # Scroll to end
-            stdout_log.scroll_end(animate=False)
-        else:
-            stdout_log.load_text("No stdout log available")
+            stdout_content = _read_log_file(self.stdout_path)
 
-    def _read_log_file(self, path: str, tail: int = 1000) -> str:
-        """Read log file and return content as string."""
+        if worker.is_cancelled:
+            return
+
+        self.app.call_from_thread(self._apply_logs, stderr_content, stdout_content)
+
+    def _apply_logs(self, stderr_content: str, stdout_content: str) -> None:
+        """Apply loaded log content on the main thread."""
         try:
-            with open(path) as f:
-                content = f.read()
+            stderr_log = self.query_one("#stderr-log", TextArea)
+            stderr_log.load_text(stderr_content)
+            stderr_log.scroll_end(animate=False)
 
-            # Simulate terminal behavior for carriage returns
-            # Process the content to handle \r (overwrites current line)
-            lines = []
-            current_line = ""
-
-            for char in content:
-                if char == '\r':
-                    # Carriage return: reset to beginning of current line
-                    current_line = ""
-                elif char == '\n':
-                    # Newline: finish current line and start new one
-                    lines.append(current_line)
-                    current_line = ""
-                else:
-                    current_line += char
-
-            # Don't forget the last line if it doesn't end with \n
-            if current_line:
-                lines.append(current_line)
-
-            # Filter out empty lines that come from progress bar overwrites
-            lines = [line for line in lines if line.strip()]
-
-            # Show last N lines
-            if len(lines) > tail:
-                lines = [f"... ({len(lines) - tail} lines omitted) ..."] + lines[-tail:]
-
-            return '\n'.join(lines)
-        except Exception as e:
-            return f"Error reading log: {e}"
+            stdout_log = self.query_one("#stdout-log", TextArea)
+            stdout_log.load_text(stdout_content)
+            stdout_log.scroll_end(animate=False)
+        except Exception:
+            pass
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button presses."""

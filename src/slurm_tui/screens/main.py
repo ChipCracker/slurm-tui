@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import subprocess
-
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, Vertical
 from textual.screen import Screen
@@ -198,7 +196,7 @@ class MainScreen(Screen):
         self.app.push_screen(InteractiveSessionScreen())
 
     def action_attach(self) -> None:
-        """Attach to selected job using suspend/resume."""
+        """Attach to selected job in embedded terminal."""
         job_table = self.query_one(JobTableWidget)
         job = job_table.get_selected_job()
 
@@ -211,11 +209,10 @@ class MainScreen(Screen):
             return
 
         cmd = self.slurm_client.attach_to_job(job.job_id)
-        self.notify(f"Attaching to job {job.job_id}...")
 
-        # Suspend TUI, run srun, then resume
-        with self.app.suspend():
-            subprocess.run(cmd)
+        # Open embedded terminal modal
+        from .terminal import TerminalScreen
+        self.app.push_screen(TerminalScreen(job, cmd))
 
     def action_cancel(self) -> None:
         """Cancel selected job."""

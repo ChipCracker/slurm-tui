@@ -4,14 +4,54 @@ from __future__ import annotations
 
 import os
 
+from textual import work
 from textual.app import ComposeResult
-from textual.containers import Vertical, ScrollableContainer
+from textual.containers import Vertical
 from textual.reactive import reactive
 from textual.widgets import Static, TextArea
 from textual.widget import Widget
+from textual.worker import get_current_worker
 
 from ..utils.slurm import SlurmClient, Job
 from ..utils.bookmarks import BookmarkManager
+
+
+def _read_log_file(path: str, tail: int = 500) -> str:
+    """Read log file tail efficiently with terminal simulation for carriage returns."""
+    file_size = os.path.getsize(path)
+
+    # For large files, only read the tail portion
+    tail_bytes = 512 * 1024  # 512KB
+    truncated = False
+
+    with open(path, "rb") as f:
+        if file_size > tail_bytes:
+            f.seek(-tail_bytes, 2)
+            f.readline()  # Skip partial first line
+            truncated = True
+        content = f.read().decode("utf-8", errors="replace")
+
+    # Process carriage returns efficiently using string split
+    result_lines = []
+    for raw_line in content.split("\n"):
+        if "\r" in raw_line:
+            # Take the last segment after \r (simulates terminal overwrite)
+            final = raw_line.rsplit("\r", 1)[-1]
+            if final.strip():
+                result_lines.append(final)
+        elif raw_line.strip():
+            result_lines.append(raw_line)
+
+    # Limit to last N lines
+    if len(result_lines) > tail:
+        result_lines = (
+            [f"... ({len(result_lines) - tail} lines omitted) ..."]
+            + result_lines[-tail:]
+        )
+    elif truncated:
+        result_lines = ["... (showing tail of large file) ..."] + result_lines
+
+    return "\n".join(result_lines)
 
 
 class JobDetailsWidget(Widget):
@@ -63,6 +103,14 @@ class JobDetailsWidget(Widget):
 
     JobDetailsWidget .not-your-job {
         color: #e0af68;
+        text-align: center;
+        padding: 2;
+        height: auto;
+    }
+
+    JobDetailsWidget .loading {
+        color: #565f89;
+        text-style: italic;
         text-align: center;
         padding: 2;
         height: auto;
@@ -150,33 +198,123 @@ class JobDetailsWidget(Widget):
         css_class = "not-your-job" if is_warning else "no-job"
         container.mount(Static(message, classes=css_class))
 
-    def _show_job_details(self) -> None:
-        """Show full job details with script and logs."""
+    def _show_loading(self) -> None:
+        """Show a loading indicator."""
         self._clear_content()
         container = self.query_one("#content-container", Vertical)
+        container.mount(Static("Loading...", classes="loading"))
 
-        # Get script path and content
-        self._script_path = self._get_script_path()
-        script_content = self._get_script_content()
-        stderr_content = self._get_stderr_content()
+    def update_job(self, job: Job | None) -> None:
+        """Update the displayed job (only if job changed)."""
+        if self._current_job is not None and job is not None:
+            if self._current_job.job_id == job.job_id:
+                return  # Same job, don't reload
+
+        self._current_job = job
+
+        if job is None:
+            self._update_title("Job Details")
+            self._show_placeholder("Select a job to view details")
+            return
+
+        self._update_title(f"Job {job.job_id} - {job.name}")
+        self._show_loading()
+        self._load_job_content()
+
+    @work(thread=True, exclusive=True)
+    def _load_job_content(self) -> None:
+        """Load job script and logs in background thread (single scontrol call)."""
+        worker = get_current_worker()
+        job = self._current_job
+        if not job:
+            return
+
+        # Single scontrol call for all job details
+        details = self.slurm_client.get_job_details(job.job_id)
+        if worker.is_cancelled:
+            return
+
+        # Check ownership from cached details
+        job_user = details.get("UserId", "").split("(")[0] if details else None
+        username = self.slurm_client.username
+        is_own_job = job_user == username if job_user else True
+
+        if not is_own_job:
+            self.app.call_from_thread(
+                self._show_placeholder,
+                f"Not your job (owner: {job_user})\nDetails not available",
+                True,
+            )
+            return
+
+        # Extract paths from cached details
+        script_path = details.get("Command") if details else None
+        stderr_path = details.get("StdErr") if details else None
+
+        if worker.is_cancelled:
+            return
+
+        # Read script content
+        script_content = "Script not available"
+        if script_path and os.path.exists(script_path):
+            try:
+                with open(script_path) as f:
+                    script_content = f.read()
+            except Exception as e:
+                script_content = f"Error reading script: {e}"
+
+        if worker.is_cancelled:
+            return
+
+        # Read stderr content efficiently
+        stderr_content = "No stderr log available"
+        if stderr_path and os.path.exists(stderr_path):
+            try:
+                stderr_content = _read_log_file(stderr_path)
+            except Exception as e:
+                stderr_content = f"Error reading log: {e}"
+
+        if worker.is_cancelled:
+            return
+
+        # Update UI on main thread
+        self.app.call_from_thread(
+            self._apply_job_content,
+            script_path,
+            script_content,
+            stderr_content,
+        )
+
+    def _apply_job_content(
+        self,
+        script_path: str | None,
+        script_content: str,
+        stderr_content: str,
+    ) -> None:
+        """Apply loaded content to the UI (runs on main thread)."""
+        self._is_own_job = True
+        self._script_path = script_path
         self._original_script = script_content
         self._script_modified = False
 
+        self._clear_content()
+        container = self.query_one("#content-container", Vertical)
+
         # Mount content - script header with edit hint
         container.mount(Static("Script [Ctrl+S to save]", classes="script-header"))
-        container.mount(Static(f"{self._script_path or 'N/A'}", classes="script-path"))
+        container.mount(Static(f"{script_path or 'N/A'}", classes="script-path"))
         container.mount(Static("─" * 40, classes="separator"))
 
         # Editable script area
         script_area = TextArea(
             script_content,
             language="bash",
-            read_only=False,  # Editable!
+            read_only=False,
             show_line_numbers=True,
             classes="script-area",
         )
         container.mount(script_area)
-        self._script_area = script_area  # Keep reference for saving
+        self._script_area = script_area
 
         container.mount(Static("Logs (stderr)", classes="section-label"))
         container.mount(Static("─" * 40, classes="separator"))
@@ -188,7 +326,7 @@ class JobDetailsWidget(Widget):
             classes="logs-area",
         )
         container.mount(logs_area)
-        self._logs_area = logs_area  # Keep reference for scrolling
+        self._logs_area = logs_area
 
         # Scroll logs to end after mount
         self.call_after_refresh(self._scroll_logs_to_end)
@@ -196,127 +334,20 @@ class JobDetailsWidget(Widget):
     def _scroll_logs_to_end(self) -> None:
         """Scroll the logs area to the end."""
         try:
-            if hasattr(self, '_logs_area') and self._logs_area:
+            if hasattr(self, "_logs_area") and self._logs_area:
                 self._logs_area.scroll_end(animate=False)
         except Exception:
             pass
-
-    def update_job(self, job: Job | None) -> None:
-        """Update the displayed job (only if job changed)."""
-        # Only update if job actually changed
-        if self._current_job is not None and job is not None:
-            if self._current_job.job_id == job.job_id:
-                return  # Same job, don't reload
-
-        self._current_job = job
-        self._refresh_display()
-
-    def _refresh_display(self) -> None:
-        """Refresh the display based on current job."""
-        if self._current_job is None:
-            self._update_title("Job Details")
-            self._show_placeholder("Select a job to view details")
-            return
-
-        # Update title
-        self._update_title(f"Job {self._current_job.job_id} - {self._current_job.name}")
-
-        # Check if it's our job
-        username = self.slurm_client.username
-        job_user = self._get_job_user()
-        self._is_own_job = job_user == username if job_user else True
-
-        if not self._is_own_job:
-            self._show_placeholder(
-                f"Not your job (owner: {job_user})\nDetails not available",
-                is_warning=True
-            )
-            return
-
-        self._show_job_details()
 
     def _update_title(self, title: str) -> None:
         """Update the title."""
         header = self.query_one(".details-title", Static)
         header.update(title)
 
-    def _get_job_user(self) -> str | None:
-        """Get the user who owns the job."""
-        if not self._current_job:
-            return None
-        details = self.slurm_client.get_job_details(self._current_job.job_id)
-        if details:
-            return details.get("UserId", "").split("(")[0]  # "user(1000)" -> "user"
-        return None
-
-    def _get_script_path(self) -> str | None:
-        """Get the script path for the current job."""
-        if not self._current_job:
-            return None
-        details = self.slurm_client.get_job_details(self._current_job.job_id)
-        if details:
-            return details.get("Command")
-        return None
-
-    def _get_script_content(self) -> str:
-        """Get the script content for the current job."""
-        path = self._get_script_path()
-        if path and os.path.exists(path):
-            try:
-                with open(path) as f:
-                    return f.read()
-            except Exception as e:
-                return f"Error reading script: {e}"
-        return "Script not available"
-
-    def _get_stderr_content(self) -> str:
-        """Get the stderr log content for the current job."""
-        if not self._current_job:
-            return "No job selected"
-
-        _, stderr_path = self.slurm_client.get_job_log_paths(self._current_job.job_id)
-
-        if stderr_path and os.path.exists(stderr_path):
-            try:
-                return self._read_log_file(stderr_path)
-            except Exception as e:
-                return f"Error reading log: {e}"
-        return "No stderr log available"
-
-    def _read_log_file(self, path: str, tail: int = 500) -> str:
-        """Read log file with terminal simulation for carriage returns."""
-        with open(path) as f:
-            content = f.read()
-
-        # Simulate terminal behavior for carriage returns
-        lines = []
-        current_line = ""
-
-        for char in content:
-            if char == '\r':
-                current_line = ""
-            elif char == '\n':
-                lines.append(current_line)
-                current_line = ""
-            else:
-                current_line += char
-
-        if current_line:
-            lines.append(current_line)
-
-        # Filter empty lines from progress bar overwrites
-        lines = [line for line in lines if line.strip()]
-
-        # Show last N lines
-        if len(lines) > tail:
-            lines = [f"... ({len(lines) - tail} lines omitted) ..."] + lines[-tail:]
-
-        return '\n'.join(lines)
-
     def refresh_logs(self) -> None:
         """Refresh the log content."""
         if self._current_job and self._is_own_job:
-            self._refresh_display()
+            self._load_job_content()
 
     def on_text_area_changed(self, event: TextArea.Changed) -> None:
         """Track script modifications."""

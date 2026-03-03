@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from textual import work
 from textual.app import ComposeResult
 from textual.containers import Horizontal
 from textual.reactive import reactive
 from textual.widgets import Static
 from textual.widget import Widget
+from textual.worker import get_current_worker
 
 from ..utils.gpu import GPUMonitor, PartitionGPU
 
@@ -156,9 +158,13 @@ class GPUMonitorWidget(Widget):
         self.refresh_data()
         self._timer = self.set_interval(self.refresh_interval, self.refresh_data)
 
+    @work(thread=True, exclusive=True)
     def refresh_data(self) -> None:
-        """Refresh GPU allocation data."""
+        """Refresh GPU allocation data in background thread."""
+        worker = get_current_worker()
         try:
-            self.partitions = self.gpu_monitor.get_partition_allocation()
+            partitions = self.gpu_monitor.get_partition_allocation()
+            if not worker.is_cancelled:
+                self.app.call_from_thread(setattr, self, "partitions", partitions)
         except Exception:
             pass

@@ -5,6 +5,7 @@ from .job_submit import JobSubmitScreen
 from .log_viewer import LogViewerScreen
 from .bookmarks import BookmarksScreen
 from .editor import EditorScreen
+from .terminal import TerminalScreen
 
 __all__ = [
     "MainScreen",
@@ -12,4 +13,5 @@ __all__ = [
     "LogViewerScreen",
     "BookmarksScreen",
     "EditorScreen",
+    "TerminalScreen",
 ]
