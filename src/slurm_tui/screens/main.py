@@ -211,7 +211,11 @@ class MainScreen(Screen):
         cmd = self.slurm_client.attach_to_job(job.job_id)
 
         # Open embedded terminal modal
-        from .terminal import TerminalScreen
+        try:
+            from .terminal import TerminalScreen
+        except ImportError:
+            self.notify("Terminal screen not yet implemented", severity="warning")
+            return
         self.app.push_screen(TerminalScreen(job, cmd))
 
     def action_cancel(self) -> None:
