@@ -14,7 +14,7 @@ from textual.worker import get_current_worker
 
 from ..utils.slurm import SlurmClient, Job
 from ..utils.bookmarks import BookmarkManager
-from ..utils.log_reader import read_log_file
+from ..utils.log_reader import LogTail, read_log_incremental
 
 
 class JobDetailsWidget(Widget):
@@ -139,6 +139,7 @@ class JobDetailsWidget(Widget):
         self._script_path: str | None = None
         self._original_script: str = ""
         self._script_modified: bool = False
+        self._stderr_log_tail: LogTail | None = None
 
     def compose(self) -> ComposeResult:
         yield Static("Job Details", classes="details-title")
@@ -229,13 +230,15 @@ class JobDetailsWidget(Widget):
         if worker.is_cancelled:
             return
 
-        # Read stderr content efficiently
+        # Read stderr content efficiently via LogTail (enables incremental refresh)
         stderr_content = "No stderr log available"
-        if stderr_path and os.path.exists(stderr_path):
-            try:
-                stderr_content = read_log_file(stderr_path)
-            except Exception as e:
-                stderr_content = f"Error reading log: {e}"
+        self._stderr_log_tail = None
+        if stderr_path:
+            log_tail = LogTail(stderr_path)
+            result = read_log_incremental(log_tail)
+            if result is not None:
+                stderr_content = result
+                self._stderr_log_tail = log_tail
 
         if worker.is_cancelled:
             return
@@ -308,9 +311,40 @@ class JobDetailsWidget(Widget):
         header.update(title)
 
     def refresh_logs(self) -> None:
-        """Refresh the log content."""
-        if self._current_job and self._is_own_job:
+        """Refresh the log content (incremental when possible)."""
+        if not (self._current_job and self._is_own_job):
+            return
+
+        if self._stderr_log_tail and self._stderr_log_tail._initialized and self._logs_area:
+            self._refresh_logs_incremental()
+        else:
             self._load_job_content()
+
+    @work(thread=True, exclusive=True, group="refresh_logs")
+    def _refresh_logs_incremental(self) -> None:
+        """Incrementally append new log content."""
+        worker = get_current_worker()
+        if not self._stderr_log_tail:
+            return
+
+        result = read_log_incremental(self._stderr_log_tail)
+        new_text = result if result else ""
+
+        if worker.is_cancelled or not new_text:
+            return
+
+        self.app.call_from_thread(self._apply_incremental_logs, new_text)
+
+    def _apply_incremental_logs(self, new_text: str) -> None:
+        """Append new text to logs area; auto-scroll only if already at bottom."""
+        try:
+            if self._logs_area:
+                was_at_bottom = self._logs_area.scroll_y >= self._logs_area.max_scroll_y
+                self._logs_area.insert(new_text, self._logs_area.document.end)
+                if was_at_bottom:
+                    self._logs_area.scroll_end(animate=False)
+        except Exception:
+            pass
 
     def on_text_area_changed(self, event: TextArea.Changed) -> None:
         """Track script modifications."""

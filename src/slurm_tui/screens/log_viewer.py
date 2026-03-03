@@ -13,7 +13,7 @@ from textual.widgets import Static, TextArea, Button, TabbedContent, TabPane
 from textual.worker import get_current_worker
 
 from ..utils.slurm import SlurmClient, Job
-from ..utils.log_reader import read_log_file
+from ..utils.log_reader import LogTail, read_log_incremental
 
 
 class LogViewerScreen(ModalScreen):
@@ -112,6 +112,8 @@ class LogViewerScreen(ModalScreen):
         self.stdout_path: str | None = None
         self.stderr_path: str | None = None
         self._follow_timer = None
+        self._stderr_tail: LogTail | None = None
+        self._stdout_tail: LogTail | None = None
 
     def compose(self) -> ComposeResult:
         with Vertical():
@@ -146,19 +148,27 @@ class LogViewerScreen(ModalScreen):
 
     @work(thread=True, exclusive=True)
     def _load_logs(self) -> None:
-        """Load log file contents in background thread."""
+        """Full load of log files (initial mount + manual refresh)."""
         worker = get_current_worker()
 
+        # Create fresh LogTail objects for full reload
+        self._stderr_tail = LogTail(self.stderr_path) if self.stderr_path else None
+        self._stdout_tail = LogTail(self.stdout_path) if self.stdout_path else None
+
         stderr_content = "No stderr log available"
-        if self.stderr_path and os.path.exists(self.stderr_path):
-            stderr_content = read_log_file(self.stderr_path)
+        if self._stderr_tail:
+            result = read_log_incremental(self._stderr_tail)
+            if result is not None:
+                stderr_content = result
 
         if worker.is_cancelled:
             return
 
         stdout_content = "No stdout log available"
-        if self.stdout_path and os.path.exists(self.stdout_path):
-            stdout_content = read_log_file(self.stdout_path)
+        if self._stdout_tail:
+            result = read_log_incremental(self._stdout_tail)
+            if result is not None:
+                stdout_content = result
 
         if worker.is_cancelled:
             return
@@ -166,7 +176,7 @@ class LogViewerScreen(ModalScreen):
         self.app.call_from_thread(self._apply_logs, stderr_content, stdout_content)
 
     def _apply_logs(self, stderr_content: str, stdout_content: str) -> None:
-        """Apply loaded log content on the main thread."""
+        """Apply full log content on the main thread (load_text + scroll to end)."""
         try:
             stderr_log = self.query_one("#stderr-log", TextArea)
             stderr_log.load_text(stderr_content)
@@ -175,6 +185,51 @@ class LogViewerScreen(ModalScreen):
             stdout_log = self.query_one("#stdout-log", TextArea)
             stdout_log.load_text(stdout_content)
             stdout_log.scroll_end(animate=False)
+        except Exception:
+            pass
+
+    @work(thread=True, exclusive=True)
+    def _follow_tick(self) -> None:
+        """Incremental follow-mode update — only reads new bytes."""
+        worker = get_current_worker()
+
+        stderr_new = ""
+        if self._stderr_tail and self._stderr_tail._initialized:
+            result = read_log_incremental(self._stderr_tail)
+            stderr_new = result if result else ""
+
+        if worker.is_cancelled:
+            return
+
+        stdout_new = ""
+        if self._stdout_tail and self._stdout_tail._initialized:
+            result = read_log_incremental(self._stdout_tail)
+            stdout_new = result if result else ""
+
+        if worker.is_cancelled:
+            return
+
+        if stderr_new or stdout_new:
+            self.app.call_from_thread(
+                self._apply_incremental, stderr_new, stdout_new
+            )
+
+    def _apply_incremental(self, stderr_new: str, stdout_new: str) -> None:
+        """Append new text to TextAreas; auto-scroll only if already at bottom."""
+        try:
+            if stderr_new:
+                ta = self.query_one("#stderr-log", TextArea)
+                was_at_bottom = ta.scroll_y >= ta.max_scroll_y
+                ta.insert(stderr_new, ta.document.end)
+                if was_at_bottom:
+                    ta.scroll_end(animate=False)
+
+            if stdout_new:
+                ta = self.query_one("#stdout-log", TextArea)
+                was_at_bottom = ta.scroll_y >= ta.max_scroll_y
+                ta.insert(stdout_new, ta.document.end)
+                if was_at_bottom:
+                    ta.scroll_end(animate=False)
         except Exception:
             pass
 
@@ -213,7 +268,7 @@ class LogViewerScreen(ModalScreen):
 
     def _follow_update(self) -> None:
         """Update logs when following."""
-        self._load_logs()
+        self._follow_tick()
 
     def action_refresh_logs(self) -> None:
         """Refresh log contents."""
