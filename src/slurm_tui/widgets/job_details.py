@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 
 from textual import work
 from textual.app import ComposeResult
@@ -121,6 +122,7 @@ class JobDetailsWidget(Widget):
     BINDINGS = [
         ("ctrl+s", "save_script", "Save Script"),
         ("b", "bookmark_script", "Bookmark Script"),
+        ("y", "copy_logs", "Copy Logs"),
     ]
 
     def __init__(
@@ -392,6 +394,27 @@ class JobDetailsWidget(Widget):
     def action_save_script(self) -> None:
         """Action to save script (Ctrl+S)."""
         self.save_script()
+
+    def action_copy_logs(self) -> None:
+        """Copy stderr logs to clipboard."""
+        if not self._logs_area or not self._logs_area.text:
+            self.notify("No log content to copy", severity="warning")
+            return
+
+        text = self._logs_area.text
+        if text.startswith("No "):
+            self.notify("No log content to copy", severity="warning")
+            return
+
+        try:
+            subprocess.run(
+                ["pbcopy"] if os.uname().sysname == "Darwin" else ["xclip", "-selection", "clipboard"],
+                input=text.encode(),
+                check=True,
+            )
+            self.notify("Copied logs to clipboard")
+        except Exception as e:
+            self.notify(f"Copy failed: {e}", severity="error")
 
     def action_bookmark_script(self) -> None:
         """Bookmark the current script (B key)."""

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 
 from textual import work
 from textual.app import ComposeResult
@@ -101,6 +102,7 @@ class LogViewerScreen(ModalScreen):
         ("escape", "close", "Close"),
         ("f", "toggle_follow", "Follow"),
         ("r", "refresh_logs", "Refresh"),
+        ("y", "copy_logs", "Copy"),
     ]
 
     following: reactive[bool] = reactive(False)
@@ -132,6 +134,7 @@ class LogViewerScreen(ModalScreen):
 
             with Horizontal(classes="log-actions"):
                 yield Button("Refresh", variant="primary", id="refresh")
+                yield Button("Copy", variant="default", id="copy")
                 yield Button("Follow", variant="default", id="follow")
                 yield Button("Close", variant="default", id="close")
 
@@ -240,6 +243,8 @@ class LogViewerScreen(ModalScreen):
         elif event.button.id == "refresh":
             self._load_logs()
             self.notify("Logs refreshed")
+        elif event.button.id == "copy":
+            self.action_copy_logs()
         elif event.button.id == "follow":
             self.action_toggle_follow()
 
@@ -269,6 +274,31 @@ class LogViewerScreen(ModalScreen):
     def _follow_update(self) -> None:
         """Update logs when following."""
         self._follow_tick()
+
+    def action_copy_logs(self) -> None:
+        """Copy the active tab's log content to clipboard."""
+        try:
+            tabbed = self.query_one(TabbedContent)
+            active_tab = tabbed.active
+            if active_tab == "stderr-tab":
+                text = self.query_one("#stderr-log", TextArea).text
+                label = "stderr"
+            else:
+                text = self.query_one("#stdout-log", TextArea).text
+                label = "stdout"
+
+            if not text or text.startswith("No "):
+                self.notify("No log content to copy", severity="warning")
+                return
+
+            proc = subprocess.run(
+                ["pbcopy"] if os.uname().sysname == "Darwin" else ["xclip", "-selection", "clipboard"],
+                input=text.encode(),
+                check=True,
+            )
+            self.notify(f"Copied {label} logs to clipboard")
+        except Exception as e:
+            self.notify(f"Copy failed: {e}", severity="error")
 
     def action_refresh_logs(self) -> None:
         """Refresh log contents."""
