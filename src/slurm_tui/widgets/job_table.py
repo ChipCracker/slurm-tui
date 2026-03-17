@@ -119,19 +119,19 @@ class JobTableWidget(Widget):
             yield Static("", id="jobs-count", classes="section-info")
 
         # Separator line
-        yield Static("─" * 56, classes="separator")
+        yield Static("─" * 66, classes="separator")
 
         # Column header
         yield Static(
-            "    ID       Name                   State    GPU     Time",
+            "    ID       Name                   State    Part      GPU     Time",
             classes="column-header",
         )
-        yield Static("─" * 56, classes="header-separator")
+        yield Static("─" * 66, classes="header-separator")
 
         # Data table without header (we made our own)
         table = DataTable(zebra_stripes=False, show_header=False)
         table.cursor_type = "row"
-        table.add_columns("id", "name", "state", "gpu", "time")
+        table.add_columns("id", "name", "state", "partition", "gpu", "time")
         yield table
 
     def on_mount(self) -> None:
@@ -186,10 +186,14 @@ class JobTableWidget(Widget):
             else:
                 time_display = "[#414868]      —[/]"
 
+            # Partition
+            partition_display = f"[#7dcfff]{job.partition:<8}[/]"
+
             table.add_row(
                 f"[#c0caf5]{job.job_id:>7}[/]",
                 f"{job.name[:20]:<20}",
                 state_display,
+                partition_display,
                 gpu_display,
                 time_display,
             )
