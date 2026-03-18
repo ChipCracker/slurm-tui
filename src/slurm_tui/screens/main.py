@@ -142,7 +142,6 @@ class MainScreen(Screen):
                 with Container(id="gpu-hours-panel"):
                     yield GPUHoursWidget(
                         gpu_monitor=self.gpu_monitor,
-                        slurm_client=self.slurm_client,
                         refresh_interval=60.0,
                     )
 
@@ -174,6 +173,11 @@ class MainScreen(Screen):
         """Handle job selection from the job table."""
         details_panel = self.query_one(JobDetailsWidget)
         details_panel.update_job(message.job)
+
+    def on_job_table_widget_jobs_refreshed(self, message: JobTableWidget.JobsRefreshed) -> None:
+        """Forward refreshed jobs to GPU hours widget for running jobs summary."""
+        gpu_hours = self.query_one(GPUHoursWidget)
+        gpu_hours.update_running_jobs(message.jobs)
 
     def action_quit(self) -> None:
         """Quit the application."""

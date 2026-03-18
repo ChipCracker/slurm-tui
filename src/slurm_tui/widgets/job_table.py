@@ -126,6 +126,13 @@ class JobTableWidget(Widget):
             self.job = job
             super().__init__()
 
+    class JobsRefreshed(Message):
+        """Message sent when the job list has been refreshed."""
+
+        def __init__(self, jobs: list[Job]) -> None:
+            self.jobs = jobs
+            super().__init__()
+
     class ActionRequested(Message):
         """Message sent when an action is requested on a job."""
 
@@ -254,6 +261,9 @@ class JobTableWidget(Widget):
         count_label = self.query_one("#jobs-count", Static)
         mode = "all" if self.show_all_users else "my jobs"
         count_label.update(f"{mode} ({len(self.jobs)})")
+
+        # Notify other widgets about the refreshed job list
+        self.post_message(self.JobsRefreshed(self.jobs))
 
         # Restore cursor position
         if old_job_id is not None:
