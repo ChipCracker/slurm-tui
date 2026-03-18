@@ -7,34 +7,44 @@ A modern terminal user interface for SLURM cluster management with real-time GPU
 
 ## Features
 
-- **GPU Allocation Monitor** - Real-time GPU usage per partition with progress bars (10s auto-refresh)
-- **GPU Hours Tracking** - User ranking by GPU hours consumed
-- **Job Management** - View, submit, cancel, and attach to jobs
-- **Interactive Sessions** - Quick launch of interactive SLURM sessions
-- **Keyboard Navigation** - Full keyboard control for efficient workflow
+- **GPU Allocation Monitor** - Real-time GPU usage per partition with color-coded progress bars (10s auto-refresh)
+- **GPU Hours Tracking** - User ranking by GPU hours consumed with relative bar charts
+- **Job Management** - View, submit, cancel, and attach to jobs with partition and GPU info
+- **Log Viewer** - Incremental log loading with scroll-aware auto-follow and clipboard copy
+- **Bookmarks** - Bookmark jobs and scripts for quick access (stored in `~/.config/slurm-tui/`)
+- **Script Editor** - Edit SLURM scripts with file browser and bookmark integration
+- **Embedded Console** - Persistent shell session within the TUI (toggle with backtick)
+- **Interactive Sessions** - Quick launch of interactive SLURM sessions with configurable resources
+- **Job Attach** - Attach to running jobs with full terminal access via `app.suspend()`
+- **Tokyo Night Theme** - Modern dark color scheme with borderless, minimal design
 
 ## Screenshot
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│  SLURM TUI                                              12:34:56   │
-├─────────────────────────────────────────────────────────────────────┤
-│ GPU Allocation (auto-refresh 10s)      │ GPU Hours (2026)          │
-│ ┌─────────────────────────────────────┐│ ┌────────────────────────┐│
-│ │ p0    4/8   ████████░░░░░░░  50.0% ││ │ #  User     Hours     ││
-│ │ p1   12/16  ████████████░░░  75.0% ││ │ 1  alice    1,234.5   ││
-│ │ p2    8/32  ████░░░░░░░░░░░  25.0% ││ │ 2  bob        890.2   ││
-│ │ p4    0/8   ░░░░░░░░░░░░░░░   0.0% ││ │ 3  charlie    654.1   ││
-│ └─────────────────────────────────────┘│ └────────────────────────┘│
-├─────────────────────────────────────────────────────────────────────┤
-│ My Jobs (2)                                                         │
-│ ┌─────────────────────────────────────────────────────────────────┐ │
-│ │ JobID    Name           State Part  GPUs CPUs Runtime    Node   │ │
-│ │ 12345    training-exp1  R     p2    4    12   02:34:12   node01 │ │
-│ │ 12346    eval-model     PD    p4    2    8    --:--:--   -      │ │
-│ └─────────────────────────────────────────────────────────────────┘ │
-│ [a]ttach  [c]ancel  [d]etails  [u] toggle all users                 │
-└─────────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────┐
+│  SLURM TUI                                               10s refresh │
+├────────────────────────────────┬──────────────────────────────────────┤
+│ GPU Allocation                 │ Job Details                          │
+│ p0    4/8   ████████░░░  50%  │ ┌─ Script ──────────────────────────┐│
+│ p1   12/16  ██████████░  75%  ││ #!/bin/bash                       ││
+│ p2    8/32  ████░░░░░░░  25%  ││ #SBATCH --partition=p2            ││
+│                                ││ #SBATCH --gres=gpu:4              ││
+│ GPU Hours (2026)               │└────────────────────────────────────┘│
+│ 1  alice    ██████  1,234h    │ ┌─ Logs ─────────────────────────────┐│
+│ 2  bob      ████    890h      ││ Epoch 1/10 loss=0.234              ││
+│ 3  charlie  ███     654h      ││ Epoch 2/10 loss=0.198              ││
+│                                │└────────────────────────────────────┘│
+│ Jobs (my jobs: 2)              │                                      │
+│     ID  Name            ● R p2│                                      │
+│  12345  training-exp1   ◐ PD  │                                      │
+│  12346  eval-model            │                                      │
+├────────────────────────────────┴──────────────────────────────────────┤
+│ > Console                                              Esc=back `=tog│
+│ $ squeue -u $USER                                                     │
+│ $ nvidia-smi --query-gpu=...                                          │
+├───────────────────────────────────────────────────────────────────────┤
+│ attach  cancel  logs  new  interactive  users  bookmarks  editor  `   │
+└───────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Installation
@@ -59,23 +69,44 @@ slurm-tui
 
 ## Keyboard Shortcuts
 
+### Main Screen
+
 | Key | Action |
 |-----|--------|
 | `q` | Quit |
 | `r` | Refresh all data |
 | `n` | New job (submit script) |
 | `i` | Start interactive session |
-| `a` | Attach to selected job |
+| `a` | Attach to running job |
 | `c` | Cancel selected job |
 | `u` | Toggle all users / my jobs |
+| `l` | View job logs |
+| `b` | Bookmarks |
+| `B` | Add current job to bookmarks |
+| `e` | Script editor |
+| `` ` `` | Toggle embedded console |
 | `?` | Show help |
+
+### Job Details Panel
+
+| Key | Action |
+|-----|--------|
+| `y` | Copy logs to clipboard |
+| `Ctrl+S` | Save script |
+
+### Console
+
+| Key | Action |
+|-----|--------|
+| `Escape` | Return focus to job table |
+| `` ` `` | Toggle console visibility |
 
 ## Project Structure
 
 ```
 slurm-tui/
 ├── pyproject.toml
-├── scripts/                    # Legacy bash scripts
+├── scripts/                       # Legacy bash scripts
 │   ├── attach_slurm_job.sh
 │   ├── batch_slurm_job.sh
 │   ├── cancel_slurm_job.sh
@@ -84,17 +115,24 @@ slurm-tui/
 │   ├── interactive_slurm_job.sh
 │   └── show_alloc_gpus.sh
 └── src/slurm_tui/
-    ├── app.py                  # Main application
+    ├── app.py                     # Main application
     ├── screens/
-    │   ├── main.py             # Dashboard screen
-    │   └── job_submit.py       # Job submission dialogs
+    │   ├── main.py                # Dashboard screen
+    │   ├── job_submit.py          # Job submission & cancel dialogs
+    │   ├── log_viewer.py          # Log viewer modal
+    │   ├── bookmarks.py           # Bookmarks modal
+    │   └── editor.py              # Script editor
     ├── utils/
-    │   ├── slurm.py            # SLURM command wrappers
-    │   └── gpu.py              # GPU monitoring utilities
+    │   ├── slurm.py               # SLURM command wrappers
+    │   ├── gpu.py                 # GPU monitoring utilities
+    │   ├── bookmarks.py           # Bookmark persistence
+    │   └── log_reader.py          # Log file reading with CR simulation
     └── widgets/
-        ├── gpu_monitor.py      # GPU allocation widget
-        ├── gpu_hours.py        # GPU hours widget
-        └── job_table.py        # Job table widget
+        ├── gpu_monitor.py         # GPU allocation widget
+        ├── gpu_hours.py           # GPU hours ranking widget
+        ├── job_table.py           # Job table widget
+        ├── job_details.py         # Job details (script + logs)
+        └── console.py             # Embedded shell console
 ```
 
 ## Configuration
@@ -109,6 +147,8 @@ DEFAULT_PARTITION_GPUS = {
     "p4": 8,
 }
 ```
+
+Bookmarks are stored in `~/.config/slurm-tui/bookmarks.json`.
 
 ## License
 
