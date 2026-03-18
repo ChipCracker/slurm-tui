@@ -14,6 +14,7 @@ from textual.widget import Widget
 from textual.worker import get_current_worker
 
 from ..utils.gpu import GPUMonitor, GPUHoursEntry
+from ..utils.slurm import SlurmClient, Job
 
 
 def make_hours_bar(hours: float, max_hours: float, width: int = 20) -> str:
@@ -96,6 +97,45 @@ class GPUHoursWidget(Widget):
         color: #565f89;
         text-style: italic;
     }
+
+    GPUHoursWidget > .running-title {
+        color: #565f89;
+        height: 1;
+        margin-top: 1;
+    }
+
+    GPUHoursWidget > .running-separator {
+        color: #414868;
+        margin-bottom: 0;
+    }
+
+    GPUHoursWidget > .running-row {
+        layout: horizontal;
+        height: 1;
+        padding: 0;
+    }
+
+    GPUHoursWidget > .running-row > .r-name {
+        width: 20;
+        color: #c0caf5;
+    }
+
+    GPUHoursWidget > .running-row > .r-part {
+        width: 8;
+    }
+
+    GPUHoursWidget > .running-row > .r-gpu {
+        width: 8;
+    }
+
+    GPUHoursWidget > .running-row > .r-time {
+        width: 12;
+    }
+
+    GPUHoursWidget > .running-more {
+        color: #565f89;
+        text-style: italic;
+    }
     """
 
     entries: reactive[list[GPUHoursEntry]] = reactive(list, recompose=True)
@@ -103,14 +143,18 @@ class GPUHoursWidget(Widget):
     def __init__(
         self,
         gpu_monitor: GPUMonitor | None = None,
+        slurm_client: SlurmClient | None = None,
         refresh_interval: float = 60.0,
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.gpu_monitor = gpu_monitor or GPUMonitor()
+        self.slurm_client = slurm_client
         self.refresh_interval = refresh_interval
         self.current_user = os.environ.get("USER", "")
         self._timer = None
+        self._running_jobs: list[Job] = []
+        self._expanded: bool = False
 
     def compose(self) -> ComposeResult:
         year = datetime.now().year
@@ -166,6 +210,53 @@ class GPUHoursWidget(Widget):
                     )
                     yield Static(f"[#9ece6a]{marker}[/]", classes="h-marker")
 
+        # Running jobs section
+        if self._running_jobs:
+            total_gpus = sum(j.gpus for j in self._running_jobs)
+            total_cpus = sum(j.cpus for j in self._running_jobs)
+
+            if not self._expanded:
+                # Compact: single line summary
+                yield Static(
+                    f"[#565f89]── [/][#9ece6a]Running[/] [#565f89]{len(self._running_jobs)} jobs  ·  "
+                    f"{total_gpus} GPUs  ·  {total_cpus} CPUs[/]",
+                    classes="running-title",
+                )
+            else:
+                # Expanded: summary + job list
+                yield Static(
+                    f"Running ({len(self._running_jobs)} jobs, {total_gpus} GPUs)",
+                    classes="running-title",
+                )
+                yield Static("─" * 56, classes="running-separator")
+
+                for job in self._running_jobs[:8]:
+                    gpu_str = f"{job.gpus}×GPU" if job.gpus > 0 else "  —  "
+                    runtime = job.runtime if job.runtime and job.runtime != "0:00" else "—"
+                    with Horizontal(classes="running-row"):
+                        yield Static(
+                            f"[#c0caf5]{job.name[:18]:<18}[/]",
+                            classes="r-name",
+                        )
+                        yield Static(
+                            f"[#7dcfff]{job.partition:<6}[/]",
+                            classes="r-part",
+                        )
+                        yield Static(
+                            f"[#bb9af7]{gpu_str:>5}[/]",
+                            classes="r-gpu",
+                        )
+                        yield Static(
+                            f"[#565f89]{runtime:>10}[/]",
+                            classes="r-time",
+                        )
+
+                if len(self._running_jobs) > 8:
+                    yield Static(
+                        f"  +{len(self._running_jobs) - 8} more...",
+                        classes="running-more",
+                    )
+
     def on_mount(self) -> None:
         """Start timer and load initial data."""
         self.refresh_data()
@@ -173,11 +264,25 @@ class GPUHoursWidget(Widget):
 
     @work(thread=True, exclusive=True)
     def refresh_data(self) -> None:
-        """Refresh GPU hours data in background thread."""
+        """Refresh GPU hours and running jobs in background thread."""
         worker = get_current_worker()
         try:
             entries = self.gpu_monitor.get_gpu_hours(limit=10)
+            running_jobs = []
+            if self.slurm_client:
+                all_jobs = self.slurm_client.get_jobs()
+                running_jobs = [j for j in all_jobs if j.state == "R"]
             if not worker.is_cancelled:
-                self.app.call_from_thread(setattr, self, "entries", entries)
+                self.app.call_from_thread(self._apply_refresh, entries, running_jobs)
         except Exception:
             pass
+
+    def _apply_refresh(self, entries: list[GPUHoursEntry], running_jobs: list[Job]) -> None:
+        """Apply refreshed data on the main thread."""
+        self._running_jobs = running_jobs
+        self.entries = entries  # triggers recompose
+
+    def toggle_expanded(self) -> None:
+        """Toggle between compact and expanded running jobs view."""
+        self._expanded = not self._expanded
+        self.mutate_reactive(type(self).entries)  # triggers recompose

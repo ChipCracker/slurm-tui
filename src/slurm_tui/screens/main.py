@@ -70,7 +70,7 @@ class MainScreen(Screen):
     MainScreen > #main-content > #left-panel > #gpu-hours-panel {
         height: auto;
         min-height: 6;
-        max-height: 14;
+        max-height: 24;
     }
 
     MainScreen > #main-content > #left-panel > #bottom-panel {
@@ -104,6 +104,9 @@ class MainScreen(Screen):
         ("a", "attach", "Attach"),
         ("c", "cancel", "Cancel"),
         ("u", "toggle_users", "Toggle Users"),
+        ("s", "sort", "Sort"),
+        ("d", "sort_direction", "Sort ↕"),
+        ("o", "toggle_running", "Running"),
         ("l", "view_logs", "Logs"),
         ("b", "bookmarks", "Bookmarks"),
         ("B", "add_bookmark", "Add Bookmark"),
@@ -139,6 +142,7 @@ class MainScreen(Screen):
                 with Container(id="gpu-hours-panel"):
                     yield GPUHoursWidget(
                         gpu_monitor=self.gpu_monitor,
+                        slurm_client=self.slurm_client,
                         refresh_interval=60.0,
                     )
 
@@ -160,6 +164,7 @@ class MainScreen(Screen):
         yield Static(
             "[#7aa2f7]a[/]ttach  [#7aa2f7]c[/]ancel  [#7aa2f7]l[/]ogs  "
             "[#7aa2f7]n[/]ew  [#7aa2f7]i[/]nteractive  [#7aa2f7]u[/]sers  "
+            "[#7aa2f7]s[/]ort  [#7aa2f7]d[/]ir  [#7aa2f7]o[/]verview  "
             "[#7aa2f7]b[/]ookmarks  [#7aa2f7]e[/]ditor  "
             "[#7aa2f7]t[/]erminal  [#7aa2f7]q[/]uit",
             classes="keybindings",
@@ -235,6 +240,21 @@ class MainScreen(Screen):
         """Toggle between own jobs and all users."""
         job_table = self.query_one(JobTableWidget)
         job_table.toggle_all_users()
+
+    def action_sort(self) -> None:
+        """Cycle sort column."""
+        job_table = self.query_one(JobTableWidget)
+        job_table.cycle_sort()
+
+    def action_sort_direction(self) -> None:
+        """Toggle sort direction."""
+        job_table = self.query_one(JobTableWidget)
+        job_table.toggle_sort_direction()
+
+    def action_toggle_running(self) -> None:
+        """Toggle running jobs expanded/compact view."""
+        gpu_hours = self.query_one(GPUHoursWidget)
+        gpu_hours.toggle_expanded()
 
     def action_help(self) -> None:
         """Show help."""

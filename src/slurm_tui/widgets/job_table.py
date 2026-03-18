@@ -26,6 +26,40 @@ STATUS_SYMBOLS = {
     "NF": ("✗", "#f7768e"),   # Node Fail - red
 }
 
+BASE_HEADER = "    ID       Name                   State    Part      GPU     Time"
+
+# (start, end) positions of each column label in BASE_HEADER
+COL_POSITIONS = [
+    (4, 6),    # ID
+    (13, 17),  # Name
+    (36, 41),  # State
+    (45, 49),  # Part
+    (55, 58),  # GPU
+    (63, 67),  # Time
+]
+
+SORT_COLUMN_NAMES = ["ID", "Name", "State", "Partition", "GPU", "Time"]
+
+
+def _parse_runtime(runtime: str) -> int:
+    """Parse SLURM runtime string to total seconds for sorting."""
+    if not runtime or runtime == "0:00":
+        return 0
+    try:
+        days = 0
+        time_str = runtime
+        if "-" in runtime:
+            day_part, time_str = runtime.split("-", 1)
+            days = int(day_part)
+        parts = time_str.split(":")
+        if len(parts) == 3:
+            return days * 86400 + int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
+        elif len(parts) == 2:
+            return days * 86400 + int(parts[0]) * 60 + int(parts[1])
+        return 0
+    except (ValueError, IndexError):
+        return 0
+
 
 class JobTableWidget(Widget):
     """Widget showing SLURM jobs in a table."""
@@ -111,6 +145,9 @@ class JobTableWidget(Widget):
         self.refresh_interval = refresh_interval
         self._timer = None
         self._selected_job: Job | None = None
+        self._sort_col_index: int | None = None
+        self._sort_reverse: bool = False
+        self._display_jobs: list[Job] = []
 
     def compose(self) -> ComposeResult:
         # Section header
@@ -123,7 +160,8 @@ class JobTableWidget(Widget):
 
         # Column header
         yield Static(
-            "    ID       Name                   State    Part      GPU     Time",
+            BASE_HEADER,
+            id="column-header",
             classes="column-header",
         )
         yield Static("─" * 66, classes="header-separator")
@@ -156,8 +194,8 @@ class JobTableWidget(Widget):
             table = self.query_one(DataTable)
             old_cursor_row = table.cursor_row
             old_job_id = None
-            if old_cursor_row is not None and old_cursor_row < len(self.jobs):
-                old_job_id = self.jobs[old_cursor_row].job_id
+            if old_cursor_row is not None and old_cursor_row < len(self._display_jobs):
+                old_job_id = self._display_jobs[old_cursor_row].job_id
             self.jobs = jobs
             self._update_table(old_job_id)
         except Exception:
@@ -168,7 +206,21 @@ class JobTableWidget(Widget):
         table = self.query_one(DataTable)
         table.clear()
 
-        for job in self.jobs:
+        # Sort jobs if sort is active
+        if self._sort_col_index is not None:
+            self._display_jobs = sorted(
+                self.jobs,
+                key=self._get_sort_key,
+                reverse=self._sort_reverse,
+            )
+        else:
+            self._display_jobs = list(self.jobs)
+
+        # Update column header with sort indicator
+        header = self.query_one("#column-header", Static)
+        header.update(self._build_column_header())
+
+        for job in self._display_jobs:
             # Status symbol with color
             state = job.state
             symbol, color = STATUS_SYMBOLS.get(state, ("?", "#565f89"))
@@ -205,25 +257,70 @@ class JobTableWidget(Widget):
 
         # Restore cursor position
         if old_job_id is not None:
-            # Find the job by ID in the new list
-            for i, job in enumerate(self.jobs):
+            for i, job in enumerate(self._display_jobs):
                 if job.job_id == old_job_id:
                     table.move_cursor(row=i)
                     break
 
+    def _build_column_header(self) -> str:
+        """Build column header string with sort indicator."""
+        if self._sort_col_index is None:
+            return BASE_HEADER
+
+        indicator = "▲" if not self._sort_reverse else "▼"
+        start, end = COL_POSITIONS[self._sort_col_index]
+        col_text = BASE_HEADER[start:end]
+        before = BASE_HEADER[:start]
+        # Steal one trailing space for the indicator to keep alignment
+        after = BASE_HEADER[end + 1:] if end < len(BASE_HEADER) else ""
+        return f"{before}[#7aa2f7]{col_text}{indicator}[/]{after}"
+
+    def _get_sort_key(self, job: Job):
+        """Return sort key for the current sort column."""
+        if self._sort_col_index == 0:  # ID
+            try:
+                return int(job.job_id)
+            except ValueError:
+                return job.job_id
+        elif self._sort_col_index == 1:  # Name
+            return job.name.lower()
+        elif self._sort_col_index == 2:  # State
+            return job.state
+        elif self._sort_col_index == 3:  # Partition
+            return job.partition
+        elif self._sort_col_index == 4:  # GPU
+            return job.gpus
+        elif self._sort_col_index == 5:  # Time
+            return _parse_runtime(job.runtime)
+        return 0
+
+    def cycle_sort(self) -> None:
+        """Cycle to the next sort column."""
+        if self._sort_col_index is None:
+            self._sort_col_index = 0
+            self._sort_reverse = False
+        else:
+            self._sort_col_index += 1
+            if self._sort_col_index >= len(COL_POSITIONS):
+                self._sort_col_index = None
+                self._sort_reverse = False
+        self._update_table()
+
+    def toggle_sort_direction(self) -> None:
+        """Toggle sort direction (asc/desc)."""
+        if self._sort_col_index is not None:
+            self._sort_reverse = not self._sort_reverse
+            self._update_table()
+
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         """Handle row selection."""
-        if (
-            event.row_key is not None
-            and event.row_key.value is not None
-            and event.row_key.value < len(self.jobs)
-        ):
-            self._selected_job = self.jobs[event.row_key.value]
-            self.post_message(self.JobSelected(self._selected_job))
+        job = self.get_selected_job()
+        if job:
+            self._selected_job = job
+            self.post_message(self.JobSelected(job))
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
         """Notify of selection when cursor moves."""
-        # Post message for job details panel (don't rebuild table - causes cursor reset)
         job = self.get_selected_job()
         if job:
             self.post_message(self.JobSelected(job))
@@ -231,8 +328,8 @@ class JobTableWidget(Widget):
     def get_selected_job(self) -> Job | None:
         """Get the currently selected job."""
         table = self.query_one(DataTable)
-        if table.cursor_row is not None and 0 <= table.cursor_row < len(self.jobs):
-            return self.jobs[table.cursor_row]
+        if table.cursor_row is not None and 0 <= table.cursor_row < len(self._display_jobs):
+            return self._display_jobs[table.cursor_row]
         return None
 
     def toggle_all_users(self) -> None:
