@@ -108,7 +108,7 @@ class MainScreen(Screen):
         ("b", "bookmarks", "Bookmarks"),
         ("B", "add_bookmark", "Add Bookmark"),
         ("e", "editor", "Editor"),
-        ("grave_accent", "toggle_console", "Console"),
+        ("t", "toggle_console", "Terminal"),
         ("?", "help", "Help"),
     ]
 
@@ -161,7 +161,7 @@ class MainScreen(Screen):
             "[#7aa2f7]a[/]ttach  [#7aa2f7]c[/]ancel  [#7aa2f7]l[/]ogs  "
             "[#7aa2f7]n[/]ew  [#7aa2f7]i[/]nteractive  [#7aa2f7]u[/]sers  "
             "[#7aa2f7]b[/]ookmarks  [#7aa2f7]e[/]ditor  "
-            "[#7aa2f7]`[/]console  [#7aa2f7]q[/]uit",
+            "[#7aa2f7]t[/]erminal  [#7aa2f7]q[/]uit",
             classes="keybindings",
         )
 
@@ -276,6 +276,8 @@ class MainScreen(Screen):
         """Open a native shell, suspending the TUI."""
         shell = os.environ.get("SHELL", "/bin/bash")
         with self.app.suspend():
+            print("\033[1;34m=== SLURM TUI Console ===\033[0m")
+            print("Type \033[1mexit\033[0m or press \033[1mCtrl+D\033[0m to return to the TUI.\n")
             subprocess.run(shell)
 
     def action_editor(self) -> None:
