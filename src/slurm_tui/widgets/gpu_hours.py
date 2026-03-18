@@ -98,43 +98,10 @@ class GPUHoursWidget(Widget):
         text-style: italic;
     }
 
-    GPUHoursWidget > .running-title {
+    GPUHoursWidget > .running-section {
         color: #565f89;
-        height: 1;
+        height: auto;
         margin-top: 1;
-    }
-
-    GPUHoursWidget > .running-separator {
-        color: #414868;
-        margin-bottom: 0;
-    }
-
-    GPUHoursWidget > .running-row {
-        layout: horizontal;
-        height: 1;
-        padding: 0;
-    }
-
-    GPUHoursWidget > .running-row > .r-name {
-        width: 20;
-        color: #c0caf5;
-    }
-
-    GPUHoursWidget > .running-row > .r-part {
-        width: 8;
-    }
-
-    GPUHoursWidget > .running-row > .r-gpu {
-        width: 8;
-    }
-
-    GPUHoursWidget > .running-row > .r-time {
-        width: 12;
-    }
-
-    GPUHoursWidget > .running-more {
-        color: #565f89;
-        text-style: italic;
     }
     """
 
@@ -208,52 +175,8 @@ class GPUHoursWidget(Widget):
                     )
                     yield Static(f"[#9ece6a]{marker}[/]", classes="h-marker")
 
-        # Running jobs section
-        if self._running_jobs:
-            total_gpus = sum(j.gpus for j in self._running_jobs)
-            total_cpus = sum(j.cpus for j in self._running_jobs)
-
-            if not self._expanded:
-                # Compact: single line summary
-                yield Static(
-                    f"[#565f89]── [/][#9ece6a]Running[/] [#565f89]{len(self._running_jobs)} jobs  ·  "
-                    f"{total_gpus} GPUs  ·  {total_cpus} CPUs[/]",
-                    classes="running-title",
-                )
-            else:
-                # Expanded: summary + job list
-                yield Static(
-                    f"Running ({len(self._running_jobs)} jobs, {total_gpus} GPUs)",
-                    classes="running-title",
-                )
-                yield Static("─" * 56, classes="running-separator")
-
-                for job in self._running_jobs[:8]:
-                    gpu_str = f"{job.gpus}×GPU" if job.gpus > 0 else "  —  "
-                    runtime = job.runtime if job.runtime and job.runtime != "0:00" else "—"
-                    with Horizontal(classes="running-row"):
-                        yield Static(
-                            f"[#c0caf5]{job.name[:18]:<18}[/]",
-                            classes="r-name",
-                        )
-                        yield Static(
-                            f"[#7dcfff]{job.partition:<6}[/]",
-                            classes="r-part",
-                        )
-                        yield Static(
-                            f"[#bb9af7]{gpu_str:>5}[/]",
-                            classes="r-gpu",
-                        )
-                        yield Static(
-                            f"[#565f89]{runtime:>10}[/]",
-                            classes="r-time",
-                        )
-
-                if len(self._running_jobs) > 8:
-                    yield Static(
-                        f"  +{len(self._running_jobs) - 8} more...",
-                        classes="running-more",
-                    )
+        # Running jobs section (updated imperatively via _render_running)
+        yield Static(self._render_running(), id="running-section", classes="running-section")
 
     def on_mount(self) -> None:
         """Start timer and load initial data."""
@@ -275,14 +198,52 @@ class GPUHoursWidget(Widget):
         """Apply refreshed GPU hours on the main thread."""
         self.entries = entries  # triggers recompose
 
+    def _render_running(self) -> str:
+        """Build Rich markup for the running jobs section."""
+        if not self._running_jobs:
+            return ""
+
+        total_gpus = sum(j.gpus for j in self._running_jobs)
+        total_cpus = sum(j.cpus for j in self._running_jobs)
+
+        if not self._expanded:
+            return (
+                f"[#565f89]── [/][#9ece6a]Running[/] [#565f89]{len(self._running_jobs)} jobs  ·  "
+                f"{total_gpus} GPUs  ·  {total_cpus} CPUs[/]"
+            )
+
+        lines = [
+            f"Running ({len(self._running_jobs)} jobs, {total_gpus} GPUs)",
+            "[#414868]" + "─" * 56 + "[/]",
+        ]
+        for job in self._running_jobs[:8]:
+            gpu_str = f"{job.gpus}×GPU" if job.gpus > 0 else "  —  "
+            runtime = job.runtime if job.runtime and job.runtime != "0:00" else "—"
+            lines.append(
+                f"[#c0caf5]{job.name[:18]:<18}[/]  "
+                f"[#7dcfff]{job.partition:<6}[/]  "
+                f"[#bb9af7]{gpu_str:>5}[/]  "
+                f"[#565f89]{runtime:>10}[/]"
+            )
+        if len(self._running_jobs) > 8:
+            lines.append(f"[#565f89]  +{len(self._running_jobs) - 8} more...[/]")
+
+        return "\n".join(lines)
+
+    def _update_running_section(self) -> None:
+        """Update the running section Static widget."""
+        try:
+            section = self.query_one("#running-section", Static)
+            section.update(self._render_running())
+        except Exception:
+            pass
+
     def update_running_jobs(self, jobs: list[Job]) -> None:
         """Update running jobs from external source (e.g. JobTableWidget)."""
-        running = [j for j in jobs if j.state == "R"]
-        if running != self._running_jobs:
-            self._running_jobs = running
-            self.mutate_reactive(type(self).entries)  # triggers recompose
+        self._running_jobs = [j for j in jobs if j.state == "R"]
+        self._update_running_section()
 
     def toggle_expanded(self) -> None:
         """Toggle between compact and expanded running jobs view."""
         self._expanded = not self._expanded
-        self.mutate_reactive(type(self).entries)  # triggers recompose
+        self._update_running_section()
