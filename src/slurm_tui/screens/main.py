@@ -7,7 +7,7 @@ import subprocess
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, Vertical
 from textual.screen import Screen
-from textual.widgets import DataTable, Input, Static
+from textual.widgets import DataTable, Static
 
 from ..widgets import GPUMonitorWidget, GPUHoursWidget, JobTableWidget, JobDetailsWidget, ConsoleWidget
 from ..utils.slurm import SlurmClient
@@ -279,7 +279,7 @@ class MainScreen(Screen):
         console = self.query_one("#console-panel", ConsoleWidget)
         console.toggle_class("visible")
         if console.has_class("visible"):
-            console.query_one(Input).focus()
+            console.query_one("#terminal-display").focus()
         else:
             self.query_one(JobTableWidget).query_one(DataTable).focus()
 
