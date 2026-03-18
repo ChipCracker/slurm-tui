@@ -217,6 +217,15 @@ class MainScreen(Screen):
 
         # Suspend the TUI, hand control to the real terminal, resume on exit
         with self.app.suspend():
+            subprocess.run("clear")
+            print(f"\033[1;34m=== SLURM TUI - Attach to Job ===\033[0m")
+            print(f"  Job ID:     \033[1m{job.job_id}\033[0m")
+            print(f"  Name:       {job.name}")
+            print(f"  Partition:  {job.partition}")
+            print(f"  Node:       {job.node}")
+            print(f"  GPUs:       {job.gpus}   CPUs: {job.cpus}   Memory: {job.memory}")
+            print(f"  Runtime:    {job.runtime}")
+            print(f"\nType \033[1mexit\033[0m or press \033[1mCtrl+D\033[0m to return to the TUI.\n")
             subprocess.run(cmd)
 
     def action_cancel(self) -> None:
