@@ -7,9 +7,9 @@ import subprocess
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, Vertical
 from textual.screen import Screen
-from textual.widgets import Static
+from textual.widgets import DataTable, Input, Static
 
-from ..widgets import GPUMonitorWidget, GPUHoursWidget, JobTableWidget, JobDetailsWidget
+from ..widgets import GPUMonitorWidget, GPUHoursWidget, JobTableWidget, JobDetailsWidget, ConsoleWidget
 from ..utils.slurm import SlurmClient
 from ..utils.gpu import GPUMonitor
 from ..utils.bookmarks import BookmarkManager
@@ -22,7 +22,7 @@ class MainScreen(Screen):
     MainScreen {
         layout: grid;
         grid-size: 1;
-        grid-rows: auto 1fr auto;
+        grid-rows: auto 1fr auto auto;
         padding: 0;
         background: #1a1b26;
     }
@@ -107,6 +107,7 @@ class MainScreen(Screen):
         ("b", "bookmarks", "Bookmarks"),
         ("B", "add_bookmark", "Add Bookmark"),
         ("e", "editor", "Editor"),
+        ("grave_accent", "toggle_console", "Console"),
         ("?", "help", "Help"),
     ]
 
@@ -154,11 +155,15 @@ class MainScreen(Screen):
                 id="details-panel",
             )
 
+        # Console panel (hidden by default, toggle with `)
+        yield ConsoleWidget(id="console-panel")
+
         # Custom keybindings footer
         yield Static(
             "[#7aa2f7]a[/]ttach  [#7aa2f7]c[/]ancel  [#7aa2f7]l[/]ogs  "
             "[#7aa2f7]n[/]ew  [#7aa2f7]i[/]nteractive  [#7aa2f7]u[/]sers  "
-            "[#7aa2f7]b[/]ookmarks  [#7aa2f7]e[/]ditor  [#7aa2f7]q[/]uit",
+            "[#7aa2f7]b[/]ookmarks  [#7aa2f7]e[/]ditor  "
+            "[#7aa2f7]`[/]console  [#7aa2f7]q[/]uit",
             classes="keybindings",
         )
 
@@ -268,6 +273,15 @@ class MainScreen(Screen):
 
         self.bookmark_manager.add_job(job.job_id, job.name)
         self.notify(f"Bookmarked job {job.job_id}")
+
+    def action_toggle_console(self) -> None:
+        """Toggle the embedded console panel."""
+        console = self.query_one("#console-panel", ConsoleWidget)
+        console.toggle_class("visible")
+        if console.has_class("visible"):
+            console.query_one(Input).focus()
+        else:
+            self.query_one(JobTableWidget).query_one(DataTable).focus()
 
     def action_editor(self) -> None:
         """Open script editor."""
