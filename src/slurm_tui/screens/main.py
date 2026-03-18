@@ -276,6 +276,7 @@ class MainScreen(Screen):
         """Open a native shell, suspending the TUI."""
         shell = os.environ.get("SHELL", "/bin/bash")
         with self.app.suspend():
+            subprocess.run("clear")
             print("\033[1;34m=== SLURM TUI Console ===\033[0m")
             print("Type \033[1mexit\033[0m or press \033[1mCtrl+D\033[0m to return to the TUI.\n")
             subprocess.run(shell)
