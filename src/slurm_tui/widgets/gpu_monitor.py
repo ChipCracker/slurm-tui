@@ -19,21 +19,18 @@ BLOCKS = " ▁▂▃▄▅▆▇█"
 
 def make_gradient_bar(percent: float, width: int = 25) -> str:
     """Create a gradient-style progress bar with Unicode blocks."""
-    # Calculate filled and empty portions
     filled_exact = percent / 100 * width
     filled = int(filled_exact)
     partial = filled_exact - filled
     empty = width - filled - (1 if partial > 0 else 0)
 
-    # Color based on usage
     if percent < 50:
-        color = "#9ece6a"  # green
+        color = "#9ece6a"
     elif percent < 80:
-        color = "#e0af68"  # yellow
+        color = "#e0af68"
     else:
-        color = "#f7768e"  # red
+        color = "#f7768e"
 
-    # Build the bar with gradient effect
     bar = "█" * filled
     if partial > 0:
         partial_index = int(partial * (len(BLOCKS) - 1))
@@ -41,6 +38,25 @@ def make_gradient_bar(percent: float, width: int = 25) -> str:
     bar += "░" * empty
 
     return f"[{color}]{bar}[/]"
+
+
+def _render_partition_row(partition: PartitionGPU) -> str:
+    """Render a partition row as a single Rich markup string."""
+    percent = partition.usage_percent
+    if percent < 50:
+        color = "#9ece6a"
+    elif percent < 80:
+        color = "#e0af68"
+    else:
+        color = "#f7768e"
+
+    bar = make_gradient_bar(percent)
+    return (
+        f"[#c0caf5]{partition.partition:<4}[/]"
+        f"[#565f89]{partition.allocated:2}/{partition.total:2}[/]  "
+        f"{bar}  "
+        f"[{color}]{percent:5.1f}%[/]"
+    )
 
 
 class GPUMonitorWidget(Widget):
@@ -77,30 +93,8 @@ class GPUMonitorWidget(Widget):
     }
 
     GPUMonitorWidget > .partition-row {
-        layout: horizontal;
         height: 1;
         padding: 0;
-    }
-
-    GPUMonitorWidget > .partition-row > .p-name {
-        width: 4;
-        color: #c0caf5;
-    }
-
-    GPUMonitorWidget > .partition-row > .p-count {
-        width: 7;
-        text-align: right;
-        color: #565f89;
-        padding-right: 2;
-    }
-
-    GPUMonitorWidget > .partition-row > .p-bar {
-        width: 27;
-    }
-
-    GPUMonitorWidget > .partition-row > .p-percent {
-        width: 6;
-        text-align: right;
     }
 
     GPUMonitorWidget .no-data {
@@ -121,37 +115,23 @@ class GPUMonitorWidget(Widget):
         self.gpu_monitor = gpu_monitor or GPUMonitor()
         self.refresh_interval = refresh_interval
         self._timer = None
+        self._detail_index: int = -1
 
     def compose(self) -> ComposeResult:
-        # Section header
         with Horizontal(classes="section-header"):
             yield Static("GPU Allocation", classes="section-title")
             yield Static(f"{int(self.refresh_interval)}s", classes="section-info")
 
-        # Separator line
         yield Static("─" * 56, classes="separator")
 
         if not self.partitions:
             yield Static("No partition data available", classes="no-data")
         else:
             for partition in self.partitions:
-                percent = partition.usage_percent
-                # Color for percentage
-                if percent < 50:
-                    color = "#9ece6a"
-                elif percent < 80:
-                    color = "#e0af68"
-                else:
-                    color = "#f7768e"
-
-                with Horizontal(classes="partition-row"):
-                    yield Static(f"{partition.partition}", classes="p-name")
-                    yield Static(
-                        f"{partition.allocated:2}/{partition.total:2}",
-                        classes="p-count",
-                    )
-                    yield Static(make_gradient_bar(percent), classes="p-bar")
-                    yield Static(f"[{color}]{percent:5.1f}%[/]", classes="p-percent")
+                yield Static(
+                    _render_partition_row(partition),
+                    classes="partition-row",
+                )
 
     def on_mount(self) -> None:
         """Start auto-refresh timer on mount."""
@@ -168,3 +148,13 @@ class GPUMonitorWidget(Widget):
                 self.app.call_from_thread(setattr, self, "partitions", partitions)
         except Exception:
             pass
+
+    def cycle_partition_detail(self) -> PartitionGPU | None:
+        """Cycle through partitions for detail view. Returns selected partition or None."""
+        if not self.partitions:
+            return None
+        self._detail_index += 1
+        if self._detail_index >= len(self.partitions):
+            self._detail_index = -1
+            return None
+        return self.partitions[self._detail_index]

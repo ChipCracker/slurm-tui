@@ -34,15 +34,29 @@ class GPUHoursEntry:
     cluster: str
 
 
+@dataclass
+class NodeGPU:
+    """GPU info for a single node."""
+
+    node: str
+    gpu_type: str
+    gpu_count: int
+    state: str
+    cpus: int
+    memory_mb: int
+    free_memory_mb: int
+
+
 class GPUMonitor:
     """Monitor GPU allocation and usage."""
 
     # Known partitions with GPU counts (can be overridden)
     DEFAULT_PARTITION_GPUS = {
         "p0": 8,
-        "p1": 16,
-        "p2": 32,
+        "p1": 8,
+        "p2": 8,
         "p4": 8,
+        "p6": 4,
     }
 
     def __init__(self, partition_gpus: dict[str, int] | None = None):
@@ -227,6 +241,63 @@ class GPUMonitor:
                     partitions[name] = total
 
         return partitions if partitions else self.partition_gpus
+
+    def get_partition_details(self, partition: str) -> list[NodeGPU]:
+        """Get per-node GPU details for a partition."""
+        cmd = ["sinfo", "-h", "-p", partition, "-N", "-o", "%N|%G|%T|%c|%m|%e"]
+        stdout, stderr, rc = self._run_command(cmd)
+
+        if rc != 0:
+            return []
+
+        nodes = []
+        for line in stdout.strip().split("\n"):
+            if not line:
+                continue
+            parts = line.split("|")
+            if len(parts) < 6:
+                continue
+
+            node = parts[0]
+            gres = parts[1]
+            state = parts[2]
+
+            # Parse GPU type and count from GRES (e.g. "gpu:rtx3090:2")
+            gpu_type = "gpu"
+            gpu_count = 0
+            gres_match = re.search(r"gpu:([^:]+):(\d+)", gres)
+            if gres_match:
+                gpu_type = gres_match.group(1)
+                gpu_count = int(gres_match.group(2))
+            else:
+                count_match = re.search(r"gpu:(\d+)", gres)
+                if count_match:
+                    gpu_count = int(count_match.group(1))
+
+            try:
+                cpus = int(parts[3])
+            except ValueError:
+                cpus = 0
+            try:
+                memory_mb = int(parts[4])
+            except ValueError:
+                memory_mb = 0
+            try:
+                free_memory_mb = int(parts[5])
+            except ValueError:
+                free_memory_mb = 0
+
+            nodes.append(NodeGPU(
+                node=node,
+                gpu_type=gpu_type,
+                gpu_count=gpu_count,
+                state=state,
+                cpus=cpus,
+                memory_mb=memory_mb,
+                free_memory_mb=free_memory_mb,
+            ))
+
+        return nodes
 
     def is_available(self) -> bool:
         """Check if GPU monitoring commands are available."""

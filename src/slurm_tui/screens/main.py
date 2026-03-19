@@ -106,7 +106,8 @@ class MainScreen(Screen):
         ("u", "toggle_users", "Toggle Users"),
         ("s", "sort", "Sort"),
         ("d", "sort_direction", "Sort ↕"),
-        ("o", "toggle_running", "Running"),
+        ("o", "toggle_running", "Overview"),
+        ("g", "gpu_details", "GPU Details"),
         ("l", "view_logs", "Logs"),
         ("b", "bookmarks", "Bookmarks"),
         ("B", "add_bookmark", "Add Bookmark"),
@@ -163,7 +164,7 @@ class MainScreen(Screen):
         yield Static(
             "[#7aa2f7]r[/]efresh  [#7aa2f7]a[/]ttach  [#7aa2f7]c[/]ancel  [#7aa2f7]l[/]ogs  "
             "[#7aa2f7]n[/]ew  [#7aa2f7]i[/]nteractive  [#7aa2f7]u[/]sers  "
-            "[#7aa2f7]s[/]ort  [#7aa2f7]d[/]ir  [#7aa2f7]o[/]verview  "
+            "[#7aa2f7]s[/]ort  [#7aa2f7]d[/]ir  [#7aa2f7]o[/]verview  [#7aa2f7]g[/]pu  "
             "[#7aa2f7]b[/]ookmarks  [#7aa2f7]e[/]ditor  "
             "[#7aa2f7]t[/]erminal  [#7aa2f7]q[/]uit",
             classes="keybindings",
@@ -172,7 +173,13 @@ class MainScreen(Screen):
     def on_job_table_widget_job_selected(self, message: JobTableWidget.JobSelected) -> None:
         """Handle job selection from the job table."""
         details_panel = self.query_one(JobDetailsWidget)
-        details_panel.update_job(message.job)
+        if message.explicit:
+            # Explicit click/Enter — always show job, exit partition view
+            details_panel.update_job(message.job, force=True)
+            gpu_widget = self.query_one(GPUMonitorWidget)
+            gpu_widget._detail_index = -1
+        else:
+            details_panel.update_job(message.job)
 
     def on_job_table_widget_jobs_refreshed(self, message: JobTableWidget.JobsRefreshed) -> None:
         """Forward refreshed jobs to GPU hours widget for running jobs summary."""
@@ -259,6 +266,18 @@ class MainScreen(Screen):
         """Toggle running jobs expanded/compact view."""
         gpu_hours = self.query_one(GPUHoursWidget)
         gpu_hours.toggle_expanded()
+
+    def action_gpu_details(self) -> None:
+        """Cycle through partition details in the right panel."""
+        gpu_widget = self.query_one(GPUMonitorWidget)
+        partition = gpu_widget.cycle_partition_detail()
+        details_panel = self.query_one(JobDetailsWidget)
+        if partition is None:
+            # Cycled past last partition — back to job details
+            details_panel.update_job(None, force=True)
+            self.notify("GPU details closed")
+        else:
+            details_panel.update_partition(partition, self.gpu_monitor)
 
     def action_help(self) -> None:
         """Show help."""

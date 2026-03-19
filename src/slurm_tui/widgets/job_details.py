@@ -14,6 +14,7 @@ from textual.widget import Widget
 from textual.worker import get_current_worker
 
 from ..utils.slurm import SlurmClient, Job
+from ..utils.gpu import GPUMonitor, PartitionGPU, NodeGPU
 from ..utils.bookmarks import BookmarkManager
 from ..utils.log_reader import LogTail, read_log_incremental
 
@@ -136,6 +137,7 @@ class JobDetailsWidget(Widget):
         self.bookmark_manager = bookmark_manager or BookmarkManager()
         self._current_job: Job | None = None
         self._is_own_job: bool = False
+        self._showing_partition: bool = False
         self._logs_area: TextArea | None = None
         self._script_area: TextArea | None = None
         self._script_path: str | None = None
@@ -170,8 +172,13 @@ class JobDetailsWidget(Widget):
         container = self.query_one("#content-container", Vertical)
         container.mount(Static("Loading...", classes="loading"))
 
-    def update_job(self, job: Job | None) -> None:
+    def update_job(self, job: Job | None, force: bool = False) -> None:
         """Update the displayed job (only if job changed)."""
+        if self._showing_partition and not force and job is not None:
+            return  # Don't overwrite partition view from auto-refresh
+
+        self._showing_partition = False
+
         if self._current_job is not None and job is not None:
             if self._current_job.job_id == job.job_id:
                 return  # Same job, don't reload
@@ -426,3 +433,107 @@ class JobDetailsWidget(Widget):
             self.notify(f"Bookmarked: {os.path.basename(self._script_path)}")
         else:
             self.notify("Already bookmarked", severity="warning")
+
+    # ── Partition details ──────────────────────────────────────────
+
+    def update_partition(self, partition: PartitionGPU, gpu_monitor: GPUMonitor) -> None:
+        """Show partition/node details in the right panel."""
+        self._current_job = None
+        self._showing_partition = True
+        self._update_title(f"Partition {partition.partition}")
+        self._show_loading()
+        self._load_partition_details(partition, gpu_monitor)
+
+    @work(thread=True, exclusive=True)
+    def _load_partition_details(self, partition: PartitionGPU, gpu_monitor: GPUMonitor) -> None:
+        worker = get_current_worker()
+        nodes = gpu_monitor.get_partition_details(partition.partition)
+        if not worker.is_cancelled:
+            self.app.call_from_thread(self._apply_partition_details, partition, nodes)
+
+    # Known VRAM per GPU type
+    GPU_VRAM = {
+        "rtx": "11 GB GDDR6",
+        "rtx2080ti": "11 GB GDDR6",
+        "a100": "40 GB HBM",
+        "h200": "143 GB HBM",
+        "h100": "80 GB HBM",
+        "l40s": "46 GB GDDR6",
+        "v100": "32 GB HBM",
+        "a40": "48 GB GDDR6",
+    }
+
+    # Override VRAM by partition (when same GPU type has different variants)
+    PARTITION_VRAM = {
+        "p0": ("RTX 2080 Ti PCIe", "11 GB GDDR6"),
+        "p1": ("A100-SXM4", "40 GB HBM"),
+        "p2": ("A100-SXM4", "80 GB HBM"),
+        "p4": ("H200-SXM5", "143 GB HBM"),
+        "p6": ("L40S PCIe", "46 GB GDDR6"),
+    }
+
+    def _apply_partition_details(self, partition: PartitionGPU, nodes: list[NodeGPU]) -> None:
+        self._clear_content()
+        container = self.query_one("#content-container", Vertical)
+
+        percent = partition.usage_percent
+        if percent < 50:
+            color = "#9ece6a"
+        elif percent < 80:
+            color = "#e0af68"
+        else:
+            color = "#f7768e"
+
+        # Summary
+        total_mem = sum(n.memory_mb for n in nodes)
+        total_cpus = sum(n.cpus for n in nodes)
+
+        # Use partition-specific GPU info if available, else fallback to sinfo
+        if partition.partition in self.PARTITION_VRAM:
+            gpu_name, vram = self.PARTITION_VRAM[partition.partition]
+        else:
+            gpu_name = nodes[0].gpu_type if nodes else "unknown"
+            vram = self.GPU_VRAM.get(gpu_name.lower(), "unknown")
+
+        summary_lines = [
+            f"  GPUs: [{color}]{partition.allocated}[/] / {partition.total} allocated  ([{color}]{percent:.1f}%[/])",
+            f"  GPU: [#bb9af7]{gpu_name}[/]   VRAM: [#bb9af7]{vram}[/]",
+            f"  Nodes: [#c0caf5]{len(nodes)}[/]   CPUs: [#c0caf5]{total_cpus}[/]   RAM: [#c0caf5]{total_mem // 1024} GB[/]",
+        ]
+        container.mount(Static("\n".join(summary_lines)))
+
+        container.mount(Static("─" * 40, classes="separator"))
+
+        # Node table
+        header = (
+            f"  [#565f89]{'Node':<16} {'GPUs':>4}  {'State':<14} "
+            f"{'CPUs':>4}  {'Mem':>7}  {'Free':>7}[/]"
+        )
+        container.mount(Static(header))
+        container.mount(Static("  [#414868]" + "─" * 62 + "[/]"))
+
+        for node in nodes:
+            state = node.state
+            if "idle" in state.lower():
+                sc = "#9ece6a"
+            elif "mix" in state.lower():
+                sc = "#e0af68"
+            elif "alloc" in state.lower():
+                sc = "#f7768e"
+            elif "drain" in state.lower() or "down" in state.lower():
+                sc = "#f7768e"
+            else:
+                sc = "#565f89"
+
+            mem_gb = f"{node.memory_mb // 1024}G"
+            free_gb = f"{node.free_memory_mb // 1024}G"
+
+            row = (
+                f"  [#c0caf5]{node.node:<16}[/] "
+                f"[#bb9af7]{node.gpu_count:>4}[/]  "
+                f"[{sc}]{state:<14}[/] "
+                f"[#c0caf5]{node.cpus:>4}[/]  "
+                f"[#565f89]{mem_gb:>7}[/]  "
+                f"[#9ece6a]{free_gb:>7}[/]"
+            )
+            container.mount(Static(row))

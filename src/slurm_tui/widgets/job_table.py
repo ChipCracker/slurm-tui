@@ -122,8 +122,9 @@ class JobTableWidget(Widget):
     class JobSelected(Message):
         """Message sent when a job is selected."""
 
-        def __init__(self, job: Job) -> None:
+        def __init__(self, job: Job, explicit: bool = False) -> None:
             self.job = job
+            self.explicit = explicit
             super().__init__()
 
     class JobsRefreshed(Message):
@@ -323,11 +324,11 @@ class JobTableWidget(Widget):
             self._update_table()
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
-        """Handle row selection."""
+        """Handle row selection (Enter/click)."""
         job = self.get_selected_job()
         if job:
             self._selected_job = job
-            self.post_message(self.JobSelected(job))
+            self.post_message(self.JobSelected(job, explicit=True))
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
         """Notify of selection when cursor moves."""
