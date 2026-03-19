@@ -155,6 +155,7 @@ class JobTableWidget(Widget):
         self._sort_col_index: int | None = None
         self._sort_reverse: bool = False
         self._display_jobs: list[Job] = []
+        self._selected_ids: set[str] = set()
 
     def compose(self) -> ComposeResult:
         # Section header
@@ -248,8 +249,14 @@ class JobTableWidget(Widget):
             # Partition
             partition_display = f"[#7dcfff]{job.partition:<8}[/]"
 
+            # Selection marker
+            if job.job_id in self._selected_ids:
+                id_display = f"[#f7768e]◉ {job.job_id:>6}[/]"
+            else:
+                id_display = f"[#c0caf5]  {job.job_id:>6}[/]"
+
             table.add_row(
-                f"[#c0caf5]{job.job_id:>7}[/]",
+                id_display,
                 f"{job.name[:20]:<20}",
                 state_display,
                 partition_display,
@@ -260,7 +267,11 @@ class JobTableWidget(Widget):
         # Update count
         count_label = self.query_one("#jobs-count", Static)
         mode = "all" if self.show_all_users else "my jobs"
-        count_label.update(f"{mode} ({len(self.jobs)})")
+        sel_count = len(self._selected_ids)
+        if sel_count > 0:
+            count_label.update(f"{mode} ({len(self.jobs)}) · {sel_count} selected")
+        else:
+            count_label.update(f"{mode} ({len(self.jobs)})")
 
         # Notify other widgets about the refreshed job list
         self.post_message(self.JobsRefreshed(self.jobs))
@@ -322,6 +333,13 @@ class JobTableWidget(Widget):
             self._sort_reverse = not self._sort_reverse
             self._update_table()
 
+    def on_key(self, event) -> None:
+        """Handle space key for multi-select."""
+        if event.key == "space":
+            self.action_toggle_select()
+            event.prevent_default()
+            event.stop()
+
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         """Handle row selection."""
         job = self.get_selected_job()
@@ -341,6 +359,30 @@ class JobTableWidget(Widget):
         if table.cursor_row is not None and 0 <= table.cursor_row < len(self._display_jobs):
             return self._display_jobs[table.cursor_row]
         return None
+
+    def action_toggle_select(self) -> None:
+        """Toggle selection of the job under the cursor."""
+        job = self.get_selected_job()
+        if job is None:
+            return
+        if job.job_id in self._selected_ids:
+            self._selected_ids.discard(job.job_id)
+        else:
+            self._selected_ids.add(job.job_id)
+        self._update_table(job.job_id)
+
+    def get_selected_jobs(self) -> list[Job]:
+        """Get all marked jobs. Falls back to cursor job if none marked."""
+        if self._selected_ids:
+            return [j for j in self.jobs if j.job_id in self._selected_ids]
+        job = self.get_selected_job()
+        return [job] if job else []
+
+    def clear_selection(self) -> None:
+        """Clear all marked jobs."""
+        self._selected_ids.clear()
+        old_job = self.get_selected_job()
+        self._update_table(old_job.job_id if old_job else None)
 
     def toggle_all_users(self) -> None:
         """Toggle between showing own jobs and all jobs."""

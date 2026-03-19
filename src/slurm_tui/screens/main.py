@@ -238,16 +238,16 @@ class MainScreen(Screen):
             subprocess.run(cmd)
 
     def action_cancel(self) -> None:
-        """Cancel selected job."""
+        """Cancel selected job(s)."""
         job_table = self.query_one(JobTableWidget)
-        job = job_table.get_selected_job()
+        jobs = job_table.get_selected_jobs()
 
-        if job is None:
+        if not jobs:
             self.notify("No job selected", severity="warning")
             return
 
         from .job_submit import ConfirmCancelScreen
-        self.app.push_screen(ConfirmCancelScreen(job))
+        self.app.push_screen(ConfirmCancelScreen(jobs))
 
     def action_toggle_users(self) -> None:
         """Toggle between own jobs and all users."""

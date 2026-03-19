@@ -378,23 +378,27 @@ class ConfirmCancelScreen(ModalScreen):
         ("n", "cancel", "Cancel"),
     ]
 
-    def __init__(self, job: Job):
+    def __init__(self, jobs: list[Job] | Job):
         super().__init__()
-        self.job = job
+        self.jobs = jobs if isinstance(jobs, list) else [jobs]
         self.slurm_client = SlurmClient()
 
     def compose(self) -> ComposeResult:
+        count = len(self.jobs)
+        title = f"✗ Cancel {count} Job{'s' if count > 1 else ''}?"
+        msg = f"Are you sure you want to cancel {'these jobs' if count > 1 else 'this job'}?"
+
+        info_lines = []
+        for job in self.jobs:
+            info_lines.append(f"  {job.job_id}  {job.name}  ({job.state})")
+        info_text = "\n".join(info_lines)
+
         with Vertical():
-            yield Static("✗ Cancel Job?", classes="title")
+            yield Static(title, classes="title")
             yield Static("─" * 46, classes="separator")
 
-            yield Static("Are you sure you want to cancel this job?", classes="message")
-            yield Static(
-                f"JobID: {self.job.job_id}\n"
-                f"Name: {self.job.name}\n"
-                f"State: {self.job.state}",
-                classes="job-info",
-            )
+            yield Static(msg, classes="message")
+            yield Static(info_text, classes="job-info")
 
             yield Static("─" * 46, classes="separator")
 
@@ -409,12 +413,18 @@ class ConfirmCancelScreen(ModalScreen):
             self._cancel_job()
 
     def _cancel_job(self) -> None:
-        success, message = self.slurm_client.cancel_job(self.job.job_id)
+        failed = []
+        for job in self.jobs:
+            success, message = self.slurm_client.cancel_job(job.job_id)
+            if not success:
+                failed.append(f"{job.job_id}: {message}")
 
-        if success:
-            self.notify(message, severity="information")
+        if failed:
+            self.notify(f"Failed to cancel: {', '.join(failed)}", severity="error")
         else:
-            self.notify(f"Failed: {message}", severity="error")
+            count = len(self.jobs)
+            ids = ", ".join(j.job_id for j in self.jobs)
+            self.notify(f"Cancelled {count} job{'s' if count > 1 else ''}: {ids}", severity="information")
 
         self.app.pop_screen()
 
