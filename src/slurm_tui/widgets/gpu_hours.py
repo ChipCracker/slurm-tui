@@ -14,6 +14,7 @@ from textual.widget import Widget
 from textual.worker import get_current_worker
 
 from ..utils.gpu import GPUMonitor, GPUHoursEntry
+from ..utils.slurm import Job
 
 
 def make_hours_bar(hours: float, max_hours: float, width: int = 20) -> str:
@@ -96,6 +97,12 @@ class GPUHoursWidget(Widget):
         color: #565f89;
         text-style: italic;
     }
+
+    GPUHoursWidget > .running-section {
+        color: #565f89;
+        height: auto;
+        margin-top: 1;
+    }
     """
 
     entries: reactive[list[GPUHoursEntry]] = reactive(list, recompose=True)
@@ -111,6 +118,8 @@ class GPUHoursWidget(Widget):
         self.refresh_interval = refresh_interval
         self.current_user = os.environ.get("USER", "")
         self._timer = None
+        self._running_jobs: list[Job] = []
+        self._expanded: bool = False
 
     def compose(self) -> ComposeResult:
         year = datetime.now().year
@@ -166,6 +175,9 @@ class GPUHoursWidget(Widget):
                     )
                     yield Static(f"[#9ece6a]{marker}[/]", classes="h-marker")
 
+        # Running jobs section (updated imperatively via _render_running)
+        yield Static(self._render_running(), id="running-section", classes="running-section")
+
     def on_mount(self) -> None:
         """Start timer and load initial data."""
         self.refresh_data()
@@ -173,11 +185,65 @@ class GPUHoursWidget(Widget):
 
     @work(thread=True, exclusive=True)
     def refresh_data(self) -> None:
-        """Refresh GPU hours data in background thread."""
+        """Refresh GPU hours in background thread."""
         worker = get_current_worker()
         try:
             entries = self.gpu_monitor.get_gpu_hours(limit=10)
             if not worker.is_cancelled:
-                self.app.call_from_thread(setattr, self, "entries", entries)
+                self.app.call_from_thread(self._apply_hours, entries)
         except Exception:
             pass
+
+    def _apply_hours(self, entries: list[GPUHoursEntry]) -> None:
+        """Apply refreshed GPU hours on the main thread."""
+        self.entries = entries  # triggers recompose
+
+    def _render_running(self) -> str:
+        """Build Rich markup for the running jobs section."""
+        if not self._running_jobs:
+            return ""
+
+        total_gpus = sum(j.gpus for j in self._running_jobs)
+        total_cpus = sum(j.cpus for j in self._running_jobs)
+
+        if not self._expanded:
+            return (
+                f"[#565f89]── [/][#9ece6a]Running[/] [#565f89]{len(self._running_jobs)} jobs  ·  "
+                f"{total_gpus} GPUs  ·  {total_cpus} CPUs[/]"
+            )
+
+        lines = [
+            f"Running ({len(self._running_jobs)} jobs, {total_gpus} GPUs)",
+            "[#414868]" + "─" * 56 + "[/]",
+        ]
+        for job in self._running_jobs[:8]:
+            gpu_str = f"{job.gpus}×GPU" if job.gpus > 0 else "  —  "
+            runtime = job.runtime if job.runtime and job.runtime != "0:00" else "—"
+            lines.append(
+                f"[#c0caf5]{job.name[:18]:<18}[/]  "
+                f"[#7dcfff]{job.partition:<6}[/]  "
+                f"[#bb9af7]{gpu_str:>5}[/]  "
+                f"[#565f89]{runtime:>10}[/]"
+            )
+        if len(self._running_jobs) > 8:
+            lines.append(f"[#565f89]  +{len(self._running_jobs) - 8} more...[/]")
+
+        return "\n".join(lines)
+
+    def _update_running_section(self) -> None:
+        """Update the running section Static widget."""
+        try:
+            section = self.query_one("#running-section", Static)
+            section.update(self._render_running())
+        except Exception:
+            pass
+
+    def update_running_jobs(self, jobs: list[Job]) -> None:
+        """Update running jobs from external source (e.g. JobTableWidget)."""
+        self._running_jobs = [j for j in jobs if j.state == "R"]
+        self._update_running_section()
+
+    def toggle_expanded(self) -> None:
+        """Toggle between compact and expanded running jobs view."""
+        self._expanded = not self._expanded
+        self._update_running_section()
