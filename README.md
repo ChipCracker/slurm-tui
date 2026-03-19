@@ -9,6 +9,7 @@ A modern terminal user interface for SLURM cluster management with real-time GPU
 
 - **GPU Allocation Monitor** - Real-time GPU usage per partition with color-coded progress bars (10s auto-refresh)
 - **GPU Partition Details** - Cycle through partitions with `g` to see GPU type, VRAM, node state, memory, and CPUs
+- **Live GPU Stats** - Per-GPU utilization, VRAM, power draw, and temperature for running jobs with 5s auto-refresh (`v`)
 - **GPU Hours Tracking** - Top 10 user ranking by GPU hours consumed, current user highlighted
 - **Running Jobs Summary** - Compact overview of running jobs (count, GPUs, CPUs), expandable with `o`
 - **Job Management** - View, submit, cancel, and attach to jobs with 10s auto-refresh
@@ -50,7 +51,7 @@ A modern terminal user interface for SLURM cluster management with real-time GPU
 │  12346  eval-model         ◐ PD  p1     │ Epoch 13/100  loss=0.221                 │
 ├────────────────────────────────────────────────────────────────────────────────────┤
 │ [r]efresh [a]ttach [c]ancel [l]ogs [n]ew [i]nteractive [u]sers [s]ort [d]ir       │
-│ [o]verview [g]pu [b]ookmarks [e]ditor [t]erminal [q]uit                            │
+│ [o]verview [g]pu [v]GPU [b]ookmarks [e]ditor [t]erminal [q]uit                    │
 └────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -104,6 +105,7 @@ python -m slurm_tui
 | `d`   | Toggle sort direction (asc/desc)     |
 | `o`   | Overview: toggle running jobs        |
 | `g`   | GPU partition details (cycle)        |
+| `v`   | Live GPU stats for running job       |
 | `l`   | View logs for selected job           |
 | `b`   | Show bookmarks                       |
 | `B`   | Bookmark selected job                |

@@ -14,9 +14,27 @@ from textual.widget import Widget
 from textual.worker import get_current_worker
 
 from ..utils.slurm import SlurmClient, Job
-from ..utils.gpu import GPUMonitor, PartitionGPU, NodeGPU
+from ..utils.gpu import GPUMonitor, PartitionGPU, NodeGPU, GPUStats
 from ..utils.bookmarks import BookmarkManager
 from ..utils.log_reader import LogTail, read_log_incremental
+
+
+def _color_for(percent: float) -> str:
+    """Return Tokyo Night color code based on percentage threshold."""
+    if percent < 50:
+        return "#9ece6a"
+    elif percent < 80:
+        return "#e0af68"
+    else:
+        return "#f7768e"
+
+
+def _make_bar(percent: float, width: int = 20) -> str:
+    """Create a color-coded progress bar."""
+    color = _color_for(percent)
+    filled = int(min(percent, 100) / 100 * width)
+    empty = width - filled
+    return f"[{color}]{'█' * filled}{'░' * empty}[/]"
 
 
 class JobDetailsWidget(Widget):
@@ -138,6 +156,11 @@ class JobDetailsWidget(Widget):
         self._current_job: Job | None = None
         self._is_own_job: bool = False
         self._showing_partition: bool = False
+        self._showing_gpu_stats: bool = False
+        self._gpu_stats_timer = None
+        self._gpu_stats_job: Job | None = None
+        self._gpu_monitor_ref: GPUMonitor | None = None
+        self._gpu_stats_widget: Static | None = None
         self._logs_area: TextArea | None = None
         self._script_area: TextArea | None = None
         self._script_path: str | None = None
@@ -174,10 +197,11 @@ class JobDetailsWidget(Widget):
 
     def update_job(self, job: Job | None, force: bool = False) -> None:
         """Update the displayed job (only if job changed)."""
-        if self._showing_partition and not force and job is not None:
-            return  # Don't overwrite partition view from auto-refresh
+        if (self._showing_partition or self._showing_gpu_stats) and not force and job is not None:
+            return  # Don't overwrite special views from auto-refresh
 
         self._showing_partition = False
+        self._stop_gpu_stats()
 
         if self._current_job is not None and job is not None:
             if self._current_job.job_id == job.job_id:
@@ -438,6 +462,7 @@ class JobDetailsWidget(Widget):
 
     def update_partition(self, partition: PartitionGPU, gpu_monitor: GPUMonitor) -> None:
         """Show partition/node details in the right panel."""
+        self._stop_gpu_stats()
         self._current_job = None
         self._showing_partition = True
         self._update_title(f"Partition {partition.partition}")
@@ -537,3 +562,99 @@ class JobDetailsWidget(Widget):
                 f"[#9ece6a]{free_gb:>7}[/]"
             )
             container.mount(Static(row))
+
+    # ── Live GPU stats ─────────────────────────────────────────────
+
+    def _stop_gpu_stats(self) -> None:
+        """Stop the GPU stats auto-refresh timer and clear state."""
+        self._showing_gpu_stats = False
+        self._gpu_stats_job = None
+        self._gpu_monitor_ref = None
+        self._gpu_stats_widget = None
+        if self._gpu_stats_timer:
+            self._gpu_stats_timer.stop()
+            self._gpu_stats_timer = None
+
+    def show_gpu_stats(self, job: Job, gpu_monitor: GPUMonitor) -> None:
+        """Show live GPU stats for a running job."""
+        # Toggle off if already showing stats for same job
+        if self._showing_gpu_stats and self._gpu_stats_job and self._gpu_stats_job.job_id == job.job_id:
+            self._stop_gpu_stats()
+            self._current_job = None  # reset so update_job reloads
+            self.update_job(job, force=True)
+            return
+
+        self._stop_gpu_stats()
+        self._current_job = job
+        self._showing_partition = False
+        self._showing_gpu_stats = True
+        self._gpu_stats_job = job
+        self._gpu_monitor_ref = gpu_monitor
+        self._update_title(f"GPU Stats — Job {job.job_id}")
+
+        # Build the layout once with a single Static for stats content
+        self._clear_content()
+        container = self.query_one("#content-container", Vertical)
+        self._gpu_stats_widget = Static("[#565f89]Loading GPU stats...[/]")
+        container.mount(self._gpu_stats_widget)
+
+        self._refresh_gpu_stats()
+        self._gpu_stats_timer = self.set_interval(5.0, self._refresh_gpu_stats)
+
+    @work(thread=True, exclusive=True, group="gpu_stats")
+    def _refresh_gpu_stats(self) -> None:
+        """Fetch GPU stats in background thread."""
+        worker = get_current_worker()
+        job = self._gpu_stats_job
+        monitor = self._gpu_monitor_ref
+        if not job or not monitor or not self._showing_gpu_stats:
+            return
+
+        stats = monitor.get_job_gpu_stats(job.job_id)
+        if not worker.is_cancelled:
+            self.app.call_from_thread(self._apply_gpu_stats, stats)
+
+    def _apply_gpu_stats(self, stats: list[GPUStats]) -> None:
+        """Render GPU stats — update existing Static, no widget rebuild."""
+        if not self._showing_gpu_stats:
+            return
+
+        content = self._gpu_stats_widget
+        if not content:
+            return
+
+        if not stats:
+            content.update(
+                "[#f7768e]Could not fetch GPU stats[/]\n"
+                "[#565f89]Job may have ended or nvidia-smi unavailable[/]"
+            )
+            self._stop_gpu_stats()
+            return
+
+        lines = []
+        for s in stats:
+            lines.append(f"  [#c0caf5]GPU {s.index}[/]: [#bb9af7]{s.name}[/]")
+
+            util_bar = _make_bar(s.utilization)
+            lines.append(f"    Util   {util_bar}  [{_color_for(s.utilization)}]{s.utilization:5.1f}%[/]")
+
+            mem_pct = s.memory_percent
+            vram_bar = _make_bar(mem_pct)
+            lines.append(
+                f"    VRAM   {vram_bar}  [{_color_for(mem_pct)}]"
+                f"{s.memory_used / 1024:.1f} / {s.memory_total / 1024:.1f} GB[/]"
+            )
+
+            pwr_pct = s.power_percent
+            pwr_bar = _make_bar(pwr_pct)
+            lines.append(
+                f"    Power  {pwr_bar}  [{_color_for(pwr_pct)}]"
+                f"{s.power_draw:.0f} / {s.power_limit:.0f} W[/]"
+            )
+
+            temp_pct = min(s.temperature / 90 * 100, 100)
+            lines.append(f"    Temp   [{_color_for(temp_pct)}]{s.temperature:.0f}°C[/]")
+            lines.append("")
+
+        lines.append("[#414868]Auto-refresh: 5s[/]")
+        content.update("\n".join(lines))

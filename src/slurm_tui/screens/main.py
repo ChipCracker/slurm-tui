@@ -108,6 +108,7 @@ class MainScreen(Screen):
         ("d", "sort_direction", "Sort ↕"),
         ("o", "toggle_running", "Overview"),
         ("g", "gpu_details", "GPU Details"),
+        ("v", "gpu_stats", "GPU Stats"),
         ("l", "view_logs", "Logs"),
         ("b", "bookmarks", "Bookmarks"),
         ("B", "add_bookmark", "Add Bookmark"),
@@ -164,20 +165,31 @@ class MainScreen(Screen):
         yield Static(
             "[#7aa2f7]r[/]efresh  [#7aa2f7]a[/]ttach  [#7aa2f7]c[/]ancel  [#7aa2f7]l[/]ogs  "
             "[#7aa2f7]n[/]ew  [#7aa2f7]i[/]nteractive  [#7aa2f7]u[/]sers  "
-            "[#7aa2f7]s[/]ort  [#7aa2f7]d[/]ir  [#7aa2f7]o[/]verview  [#7aa2f7]g[/]pu  "
-            "[#7aa2f7]b[/]ookmarks  [#7aa2f7]e[/]ditor  "
-            "[#7aa2f7]t[/]erminal  [#7aa2f7]q[/]uit",
+            "[#7aa2f7]s[/]ort  [#7aa2f7]d[/]ir  [#7aa2f7]o[/]verview  "
+            "[#7aa2f7]g[/]pu  [#7aa2f7]v[/]GPU  [#7aa2f7]b[/]ookmarks  "
+            "[#7aa2f7]e[/]ditor  [#7aa2f7]t[/]erminal  [#7aa2f7]q[/]uit",
             classes="keybindings",
         )
 
     def on_job_table_widget_job_selected(self, message: JobTableWidget.JobSelected) -> None:
         """Handle job selection from the job table."""
         details_panel = self.query_one(JobDetailsWidget)
+
+        # When GPU stats view is active, follow cursor to show new job's stats
+        if details_panel._showing_gpu_stats:
+            if message.job.state == "R":
+                # Only switch if it's a different job
+                if not details_panel._gpu_stats_job or details_panel._gpu_stats_job.job_id != message.job.job_id:
+                    details_panel.show_gpu_stats(message.job, self.gpu_monitor)
+            elif message.explicit:
+                # Clicked a non-running job — exit GPU view
+                details_panel.update_job(message.job, force=True)
+            return
+
         if message.explicit:
-            # Explicit click/Enter — always show job, exit partition view
-            details_panel.update_job(message.job, force=True)
             gpu_widget = self.query_one(GPUMonitorWidget)
             gpu_widget._detail_index = -1
+            details_panel.update_job(message.job, force=True)
         else:
             details_panel.update_job(message.job)
 
@@ -261,6 +273,22 @@ class MainScreen(Screen):
         """Toggle sort direction."""
         job_table = self.query_one(JobTableWidget)
         job_table.toggle_sort_direction()
+
+    def action_gpu_stats(self) -> None:
+        """Show live GPU stats for the selected running job."""
+        job_table = self.query_one(JobTableWidget)
+        job = job_table.get_selected_job()
+
+        if job is None:
+            self.notify("No job selected", severity="warning")
+            return
+
+        if job.state != "R":
+            self.notify(f"Job {job.job_id} is not running", severity="warning")
+            return
+
+        details_panel = self.query_one(JobDetailsWidget)
+        details_panel.show_gpu_stats(job, self.gpu_monitor)
 
     def action_toggle_running(self) -> None:
         """Toggle running jobs expanded/compact view."""

@@ -47,6 +47,32 @@ class NodeGPU:
     free_memory_mb: int
 
 
+@dataclass
+class GPUStats:
+    """Live GPU stats for a single GPU device."""
+
+    index: int
+    name: str
+    utilization: float      # percent 0-100
+    memory_used: float      # MiB
+    memory_total: float     # MiB
+    temperature: float      # Celsius
+    power_draw: float       # Watts
+    power_limit: float      # Watts
+
+    @property
+    def memory_percent(self) -> float:
+        if self.memory_total == 0:
+            return 0.0
+        return (self.memory_used / self.memory_total) * 100
+
+    @property
+    def power_percent(self) -> float:
+        if self.power_limit == 0:
+            return 0.0
+        return (self.power_draw / self.power_limit) * 100
+
+
 class GPUMonitor:
     """Monitor GPU allocation and usage."""
 
@@ -298,6 +324,41 @@ class GPUMonitor:
             ))
 
         return nodes
+
+    def get_job_gpu_stats(self, job_id: str) -> list[GPUStats]:
+        """Get live GPU stats for a running job via srun --overlap."""
+        cmd = [
+            "srun", "--overlap", f"--jobid={job_id}",
+            "nvidia-smi",
+            "--query-gpu=index,name,utilization.gpu,memory.used,memory.total,"
+            "temperature.gpu,power.draw,power.limit",
+            "--format=csv,noheader,nounits",
+        ]
+        stdout, stderr, rc = self._run_command(cmd, timeout=10)
+        if rc != 0:
+            return []
+
+        stats = []
+        for line in stdout.strip().split("\n"):
+            if not line.strip():
+                continue
+            parts = [p.strip() for p in line.split(",")]
+            if len(parts) < 8:
+                continue
+            try:
+                stats.append(GPUStats(
+                    index=int(parts[0]),
+                    name=parts[1],
+                    utilization=float(parts[2]),
+                    memory_used=float(parts[3]),
+                    memory_total=float(parts[4]),
+                    temperature=float(parts[5]),
+                    power_draw=float(parts[6]) if parts[6] != "[N/A]" else 0.0,
+                    power_limit=float(parts[7]) if parts[7] != "[N/A]" else 0.0,
+                ))
+            except (ValueError, IndexError):
+                continue
+        return stats
 
     def is_available(self) -> bool:
         """Check if GPU monitoring commands are available."""
