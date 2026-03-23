@@ -122,8 +122,9 @@ class JobTableWidget(Widget):
     class JobSelected(Message):
         """Message sent when a job is selected."""
 
-        def __init__(self, job: Job) -> None:
+        def __init__(self, job: Job, explicit: bool = False) -> None:
             self.job = job
+            self.explicit = explicit
             super().__init__()
 
     class JobsRefreshed(Message):
@@ -300,9 +301,9 @@ class JobTableWidget(Widget):
         """Return sort key for the current sort column."""
         if self._sort_col_index == 0:  # ID
             try:
-                return int(job.job_id)
+                return (0, int(job.job_id))
             except ValueError:
-                return job.job_id
+                return (1, job.job_id)
         elif self._sort_col_index == 1:  # Name
             return job.name.lower()
         elif self._sort_col_index == 2:  # State
@@ -341,11 +342,11 @@ class JobTableWidget(Widget):
             event.stop()
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
-        """Handle row selection."""
+        """Handle row selection (Enter/click)."""
         job = self.get_selected_job()
         if job:
             self._selected_job = job
-            self.post_message(self.JobSelected(job))
+            self.post_message(self.JobSelected(job, explicit=True))
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
         """Notify of selection when cursor moves."""

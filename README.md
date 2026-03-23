@@ -8,8 +8,10 @@ A modern terminal user interface for SLURM cluster management with real-time GPU
 ## Features
 
 - **GPU Allocation Monitor** - Real-time GPU usage per partition with color-coded progress bars (10s auto-refresh)
+- **GPU Partition Details** - Cycle through partitions with `g` to see GPU type, VRAM, node state, memory, and CPUs
+- **Live GPU Stats** - Per-GPU utilization, VRAM, power draw, and temperature for running jobs with 5s auto-refresh (`v`)
 - **GPU Hours Tracking** - Top 10 user ranking by GPU hours consumed, current user highlighted
-- **Running Jobs Summary** - Compact one-line overview of your running jobs (jobs, GPUs, CPUs), expandable with `o`
+- **Running Jobs Summary** - Compact overview of running jobs (count, GPUs, CPUs), expandable with `o`
 - **Job Management** - View, submit, cancel, and attach to jobs with 10s auto-refresh
 - **Column Sorting** - Sort job table by any column (ID, Name, State, Partition, GPU, Time) with visual indicator
 - **Job Details Panel** - Split-view with editable job script and live stderr/stdout logs
@@ -27,30 +29,41 @@ A modern terminal user interface for SLURM cluster management with real-time GPU
 ┌────────────────────────────────────────────────────────────────────────────────────┐
 │ SLURM TUI                                                           10s refresh    │
 ├─────────────────────────────────────────┬──────────────────────────────────────────┤
-│ GPU Allocation                          │ Job Details                              │
-│                                         │                                          │
-│  p0    4/8   ████████░░░░░░░░    50.0%  │  Script: train.sh            [modified]  │
-│  p1   12/16  ████████████░░░░    75.0%  │  #!/bin/bash                             │
-│  p2    8/32  ████░░░░░░░░░░░░    25.0%  │  #SBATCH --partition=p2                  │
-│  p4    0/8   ░░░░░░░░░░░░░░░░     0.0%  │  #SBATCH --gres=gpu:4                    │
-│                                         │  python train.py --epochs 100            │
-│ GPU Hours 2026                 Top 10   │──────────────────────────────────────────│
-│  1. alice        1,234h  ████████████   │  Logs (stderr)                 [follow]  │
-│  2. bob            890h  █████████      │  Epoch 12/100  loss=0.234                │
-│  3. charlie        654h  ███████        │  Epoch 13/100  loss=0.221                │
-│                                         │  Epoch 14/100  loss=0.198                │
-│ ── Running 3 jobs  ·  6 GPUs  ·  24 CPUs                                          │
-│                                         │                                          │
-│ Jobs                       my jobs (2)  │                                          │
-│   ID▲      Name                 State   Part       GPU      Time                   │
-│  ──────────────────────────────────────────────────────────────────                │
-│   12345    training-exp         ● R     p2           4    12:34:56                 │
-│   12346    eval-model           ◐ PD    p1           2          —                  │
+│ GPU Allocation                     10s  │ Partition p1                             │
+│ ─────────────────────────────────────── │ ──────────────────────────────────────── │
+│ p0    5/ 8  █████████████░░░░    62.5%  │   GPUs: 8 / 8 allocated  (100.0%)       │
+│ p1    8/ 8  █████████████████   100.0%  │   GPU: A100-SXM4   VRAM: 40 GB HBM     │
+│ p2    7/ 8  ██████████████░░░    87.5%  │   Nodes: 1   CPUs: 256   RAM: 2003 GB  │
+│ p4    8/ 8  █████████████████   100.0%  │ ──────────────────────────────────────── │
+│ p6    4/ 4  █████████████████   100.0%  │   Node             GPUs  State          │
+│                                         │   ml1                 8  mixed          │
+│ GPU Hours 2026                 Top 10   │                                          │
+│  1. alice        1,234h  ████████████   ├──────────────────────────────────────────┤
+│  2. bob            890h  █████████      │ Job 12345 - training-exp                 │
+│  3. you            654h  ███████     ←  │ Script [Ctrl+S to save]                  │
+│                                         │ /path/to/train.sh                        │
+│ ── Running 3 jobs  ·  6 GPUs  ·  24 CPUs│ #!/bin/bash                              │
+│                                         │ #SBATCH --partition=p2                   │
+│ Jobs                       my jobs (5)  │ #SBATCH --gres=gpu:4                     │
+│   ID       Name           State  Part   │──────────────────────────────────────────│
+│  ─────────────────────────────────────  │ Logs (stderr)                            │
+│  12345  training-exp       ● R   p2     │ Epoch 12/100  loss=0.234                 │
+│  12346  eval-model         ◐ PD  p1     │ Epoch 13/100  loss=0.221                 │
 ├────────────────────────────────────────────────────────────────────────────────────┤
-│ [a]ttach [c]ancel [l]ogs [n]ew [i]nteractive [u]sers [s]ort [d]ir [o]verview      │
-│ [b]ookmarks [e]ditor [t]erminal [q]uit                                             │
+│ [r]efresh [a]ttach [c]ancel [l]ogs [n]ew [i]nteractive [u]sers [s]ort [d]ir       │
+│ [o]verview [g]pu [v]GPU [b]ookmarks [e]ditor [t]erminal [q]uit                    │
 └────────────────────────────────────────────────────────────────────────────────────┘
 ```
+
+## Cluster Hardware
+
+| Partition | Host | RAM   | CPUs                          | GPUs                              |
+|-----------|------|-------|-------------------------------|-----------------------------------|
+| p0        | ml0  | 380G  | 96x Intel Xeon Gold 6252      | 8x RTX 2080 Ti (11 GB GDDR6)     |
+| p1        | ml1  | 2 TB  | 256x AMD EPYC 7662            | 8x A100-SXM4 (40 GB HBM)         |
+| p2        | ml2  | 2 TB  | 128x AMD EPYC 7713            | 8x A100-SXM4 (80 GB HBM)         |
+| p4        | ml4  | 2 TB  | 384x AMD EPYC 9654            | 8x H200-SXM5 (143 GB HBM)        |
+| p6        | ml6  | 2 TB  | 128x Intel Xeon Gold 6448Y    | 4x L40S (46 GB GDDR6)            |
 
 ## Installation
 
@@ -79,24 +92,34 @@ python -m slurm_tui
 
 ### Dashboard
 
-| Key   | Action                                 |
-|-------|----------------------------------------|
-| `q`   | Quit                                   |
-| `r`   | Refresh all data                       |
-| `n`   | New job (submit script)                |
-| `i`   | Start interactive session              |
-| `a`   | Attach to running job                  |
-| `c`   | Cancel selected job                    |
-| `u`   | Toggle all users / my jobs             |
-| `s`   | Cycle sort column                      |
-| `d`   | Toggle sort direction (asc/desc)       |
-| `o`   | Toggle running jobs (compact/expanded) |
-| `l`   | View logs for selected job             |
-| `b`   | Show bookmarks                         |
-| `B`   | Bookmark selected job                  |
-| `e`   | Open script editor                     |
-| `t`   | Open terminal (shell)                  |
-| `?`   | Show help                              |
+| Key   | Action                               |
+|-------|--------------------------------------|
+| `q`   | Quit                                 |
+| `r`   | Refresh all data                     |
+| `n`   | New job (submit script)              |
+| `i`   | Start interactive session            |
+| `a`   | Attach to running job                |
+| `c`   | Cancel selected job                  |
+| `u`   | Toggle all users / my jobs           |
+| `s`   | Cycle sort column                    |
+| `d`   | Toggle sort direction (asc/desc)     |
+| `o`   | Overview: toggle running jobs        |
+| `g`   | GPU partition details (cycle)        |
+| `v`   | Live GPU stats for running job       |
+| `l`   | View logs for selected job           |
+| `b`   | Show bookmarks                       |
+| `B`   | Bookmark selected job                |
+| `e`   | Open script editor                   |
+| `t`   | Terminal (open shell)                |
+| `?`   | Show help                            |
+
+### Job Details Panel
+
+| Key      | Action              |
+|----------|---------------------|
+| `Ctrl+S` | Save script         |
+| `b`      | Bookmark script     |
+| `y`      | Copy logs           |
 
 ### Log Viewer
 
@@ -150,7 +173,7 @@ slurm-tui/
     │   ├── gpu_monitor.py          # GPU allocation progress bars
     │   ├── gpu_hours.py            # GPU hours ranking + running jobs
     │   ├── job_table.py            # Sortable job listing table
-    │   └── job_details.py          # Split-pane script + logs viewer
+    │   └── job_details.py          # Split-pane script + logs + partition details
     └── utils/
         ├── slurm.py                # SLURM command wrappers
         ├── gpu.py                  # GPU monitoring (sinfo + sreport)
@@ -165,9 +188,10 @@ The TUI auto-discovers partitions from your SLURM cluster. Default partitions ca
 ```python
 DEFAULT_PARTITION_GPUS = {
     "p0": 8,
-    "p1": 16,
-    "p2": 32,
+    "p1": 8,
+    "p2": 8,
     "p4": 8,
+    "p6": 4,
 }
 ```
 
