@@ -290,9 +290,9 @@ class JobTableWidget(Widget):
         """Return sort key for the current sort column."""
         if self._sort_col_index == 0:  # ID
             try:
-                return int(job.job_id)
+                return (0, int(job.job_id))
             except ValueError:
-                return job.job_id
+                return (1, job.job_id)
         elif self._sort_col_index == 1:  # Name
             return job.name.lower()
         elif self._sort_col_index == 2:  # State

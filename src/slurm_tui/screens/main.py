@@ -69,7 +69,6 @@ class MainScreen(Screen):
 
     MainScreen > #main-content > #left-panel > #gpu-hours-panel {
         height: auto;
-        min-height: 6;
         max-height: 24;
     }
 
@@ -107,6 +106,7 @@ class MainScreen(Screen):
         ("s", "sort", "Sort"),
         ("d", "sort_direction", "Sort ↕"),
         ("o", "toggle_running", "Overview"),
+        ("h", "toggle_hours", "GPU Hours"),
         ("g", "gpu_details", "GPU Details"),
         ("v", "gpu_stats", "GPU Stats"),
         ("l", "view_logs", "Logs"),
@@ -165,7 +165,7 @@ class MainScreen(Screen):
         yield Static(
             "[#7aa2f7]r[/]efresh  [#7aa2f7]a[/]ttach  [#7aa2f7]c[/]ancel  [#7aa2f7]l[/]ogs  "
             "[#7aa2f7]n[/]ew  [#7aa2f7]i[/]nteractive  [#7aa2f7]u[/]sers  "
-            "[#7aa2f7]s[/]ort  [#7aa2f7]d[/]ir  [#7aa2f7]o[/]verview  "
+            "[#7aa2f7]s[/]ort  [#7aa2f7]d[/]ir  [#7aa2f7]o[/]verview  [#7aa2f7]h[/]ours  "
             "[#7aa2f7]g[/]pu  [#7aa2f7]v[/]GPU  [#7aa2f7]b[/]ookmarks  "
             "[#7aa2f7]e[/]ditor  [#7aa2f7]t[/]erminal  [#7aa2f7]q[/]uit",
             classes="keybindings",
@@ -294,6 +294,11 @@ class MainScreen(Screen):
         """Toggle running jobs expanded/compact view."""
         gpu_hours = self.query_one(GPUHoursWidget)
         gpu_hours.toggle_expanded()
+
+    def action_toggle_hours(self) -> None:
+        """Toggle GPU hours list collapsed/expanded."""
+        gpu_hours = self.query_one(GPUHoursWidget)
+        gpu_hours.toggle_hours()
 
     def action_gpu_details(self) -> None:
         """Cycle through partition details in the right panel."""

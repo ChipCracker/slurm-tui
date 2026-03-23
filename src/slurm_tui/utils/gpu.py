@@ -104,66 +104,54 @@ class GPUMonitor:
             return "", f"Command not found: {cmd[0]}", 1
 
     def get_partition_allocation(self) -> list[PartitionGPU]:
-        """Get GPU allocation per partition.
+        """Get GPU allocation per partition using only 2 subprocess calls total."""
+        # Single squeue call for all running jobs' GRES
+        allocated_by_part: dict[str, int] = {}
+        stdout, _, rc = self._run_command(
+            ["squeue", "-h", "-t", "R", "-o", "%P|%b"]
+        )
+        if rc == 0:
+            for line in stdout.strip().split("\n"):
+                if not line or "|" not in line:
+                    continue
+                parts = line.split("|", 1)
+                part_name = parts[0].strip().rstrip("*")
+                gres = parts[1].strip() if len(parts) > 1 else ""
+                if gres and "gpu" in gres.lower():
+                    for match in re.finditer(r"gpu(?::[^:,\s]+)?:(\d+)", gres):
+                        allocated_by_part[part_name] = (
+                            allocated_by_part.get(part_name, 0) + int(match.group(1))
+                        )
 
-        Adapted from show_alloc_gpus.sh
-        """
+        # Single sinfo call for all partitions' total GPUs
+        total_by_part: dict[str, int] = {}
+        stdout, _, rc = self._run_command(
+            ["sinfo", "-h", "-o", "%P|%G"]
+        )
+        if rc == 0:
+            for line in stdout.strip().split("\n"):
+                if not line or "|" not in line:
+                    continue
+                parts = line.split("|", 1)
+                part_name = parts[0].strip().rstrip("*")
+                gres = parts[1].strip() if len(parts) > 1 else ""
+                if gres and "gpu" in gres.lower():
+                    for match in re.finditer(r"gpu(?::[^:,\s]+)?:(\d+)", gres):
+                        total_by_part[part_name] = (
+                            total_by_part.get(part_name, 0) + int(match.group(1))
+                        )
+
         allocations = []
-
         for partition in self.partition_gpus:
-            allocated = self._get_partition_gpu_count(partition)
-            total = self.partition_gpus.get(partition, 0)
-
-            # Try to get actual total from sinfo if possible
-            actual_total = self._get_partition_total_gpus(partition)
-            if actual_total > 0:
-                total = actual_total
-
-            allocations.append(
-                PartitionGPU(
-                    partition=partition,
-                    allocated=allocated,
-                    total=total,
-                )
-            )
+            total = total_by_part.get(partition, self.partition_gpus.get(partition, 0))
+            allocated = allocated_by_part.get(partition, 0)
+            allocations.append(PartitionGPU(
+                partition=partition,
+                allocated=allocated,
+                total=total,
+            ))
 
         return allocations
-
-    def _get_partition_gpu_count(self, partition: str) -> int:
-        """Get allocated GPU count for a partition from squeue."""
-        cmd = ["squeue", "-h", "-p", partition, "-t", "R", "-O", "gres:200"]
-        stdout, stderr, rc = self._run_command(cmd)
-
-        if rc != 0:
-            return 0
-
-        total = 0
-        for line in stdout.strip().split("\n"):
-            if not line:
-                continue
-            # Match gpu:type:N or gpu:N patterns
-            for match in re.finditer(r"gpu(?::[^:,\s]+)?:(\d+)", line):
-                total += int(match.group(1))
-
-        return total
-
-    def _get_partition_total_gpus(self, partition: str) -> int:
-        """Get total GPU count for a partition from sinfo."""
-        cmd = ["sinfo", "-h", "-p", partition, "-o", "%G"]
-        stdout, stderr, rc = self._run_command(cmd)
-
-        if rc != 0:
-            return 0
-
-        total = 0
-        for line in stdout.strip().split("\n"):
-            if not line or line == "(null)":
-                continue
-            # Match gpu:type:N or gpu:N patterns
-            for match in re.finditer(r"gpu(?::[^:,\s]+)?:(\d+)", line):
-                total += int(match.group(1))
-
-        return total
 
     def get_gpu_hours(
         self,

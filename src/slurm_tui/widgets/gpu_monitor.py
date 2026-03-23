@@ -5,7 +5,6 @@ from __future__ import annotations
 from textual import work
 from textual.app import ComposeResult
 from textual.containers import Horizontal
-from textual.reactive import reactive
 from textual.widgets import Static
 from textual.widget import Widget
 from textual.worker import get_current_worker
@@ -92,8 +91,8 @@ class GPUMonitorWidget(Widget):
         margin-bottom: 1;
     }
 
-    GPUMonitorWidget > .partition-row {
-        height: 1;
+    GPUMonitorWidget > .partition-content {
+        height: auto;
         padding: 0;
     }
 
@@ -102,8 +101,6 @@ class GPUMonitorWidget(Widget):
         text-style: italic;
     }
     """
-
-    partitions: reactive[list[PartitionGPU]] = reactive(list, recompose=True)
 
     def __init__(
         self,
@@ -116,6 +113,7 @@ class GPUMonitorWidget(Widget):
         self.refresh_interval = refresh_interval
         self._timer = None
         self._detail_index: int = -1
+        self.partitions: list[PartitionGPU] = []
 
     def compose(self) -> ComposeResult:
         with Horizontal(classes="section-header"):
@@ -123,18 +121,13 @@ class GPUMonitorWidget(Widget):
             yield Static(f"{int(self.refresh_interval)}s", classes="section-info")
 
         yield Static("─" * 56, classes="separator")
-
-        if not self.partitions:
-            yield Static("No partition data available", classes="no-data")
-        else:
-            for partition in self.partitions:
-                yield Static(
-                    _render_partition_row(partition),
-                    classes="partition-row",
-                )
+        yield Static("No partition data available", classes="partition-content")
 
     def on_mount(self) -> None:
-        """Start auto-refresh timer on mount."""
+        """Start auto-refresh timer on mount (2s offset to stagger with other widgets)."""
+        self.set_timer(2.0, self._start_refresh)
+
+    def _start_refresh(self) -> None:
         self.refresh_data()
         self._timer = self.set_interval(self.refresh_interval, self.refresh_data)
 
@@ -145,9 +138,19 @@ class GPUMonitorWidget(Widget):
         try:
             partitions = self.gpu_monitor.get_partition_allocation()
             if not worker.is_cancelled:
-                self.app.call_from_thread(setattr, self, "partitions", partitions)
+                self.app.call_from_thread(self._apply_data, partitions)
         except Exception:
             pass
+
+    def _apply_data(self, partitions: list[PartitionGPU]) -> None:
+        """Update partition display imperatively — no recompose."""
+        self.partitions = partitions
+        content = self.query_one(".partition-content", Static)
+        if not partitions:
+            content.update("No partition data available")
+            return
+        lines = [_render_partition_row(p) for p in partitions]
+        content.update("\n".join(lines))
 
     def cycle_partition_detail(self) -> PartitionGPU | None:
         """Cycle through partitions for detail view. Returns selected partition or None."""
