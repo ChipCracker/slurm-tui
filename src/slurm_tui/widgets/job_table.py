@@ -26,19 +26,20 @@ STATUS_SYMBOLS = {
     "NF": ("✗", "#f7768e"),   # Node Fail - red
 }
 
-BASE_HEADER = "    ID       Name                   State    Part      GPU     Time"
+BASE_HEADER = "    ID       Name                   User         State    Part      GPU     Time"
 
 # (start, end) positions of each column label in BASE_HEADER
 COL_POSITIONS = [
     (4, 6),    # ID
     (13, 17),  # Name
-    (36, 41),  # State
-    (45, 49),  # Part
-    (55, 58),  # GPU
-    (63, 67),  # Time
+    (36, 40),  # User
+    (49, 54),  # State
+    (58, 62),  # Part
+    (68, 71),  # GPU
+    (76, 80),  # Time
 ]
 
-SORT_COLUMN_NAMES = ["ID", "Name", "State", "Partition", "GPU", "Time"]
+SORT_COLUMN_NAMES = ["ID", "Name", "User", "State", "Partition", "GPU", "Time"]
 
 
 def _parse_runtime(runtime: str) -> int:
@@ -165,7 +166,7 @@ class JobTableWidget(Widget):
             yield Static("", id="jobs-count", classes="section-info")
 
         # Separator line
-        yield Static("─" * 66, classes="separator")
+        yield Static("─" * 80, classes="separator")
 
         # Column header
         yield Static(
@@ -173,12 +174,12 @@ class JobTableWidget(Widget):
             id="column-header",
             classes="column-header",
         )
-        yield Static("─" * 66, classes="header-separator")
+        yield Static("─" * 80, classes="header-separator")
 
         # Data table without header (we made our own)
         table = DataTable(zebra_stripes=False, show_header=False)
         table.cursor_type = "row"
-        table.add_columns("id", "name", "state", "partition", "gpu", "time")
+        table.add_columns("id", "name", "user", "state", "partition", "gpu", "time")
         yield table
 
     def on_mount(self) -> None:
@@ -256,9 +257,13 @@ class JobTableWidget(Widget):
             else:
                 id_display = f"[#c0caf5]  {job.job_id:>6}[/]"
 
+            # User
+            user_display = f"[#c0caf5]{job.user[:10]:<10}[/]"
+
             table.add_row(
                 id_display,
                 f"{job.name[:20]:<20}",
+                user_display,
                 state_display,
                 partition_display,
                 gpu_display,
@@ -306,13 +311,15 @@ class JobTableWidget(Widget):
                 return (1, job.job_id)
         elif self._sort_col_index == 1:  # Name
             return job.name.lower()
-        elif self._sort_col_index == 2:  # State
+        elif self._sort_col_index == 2:  # User
+            return job.user.lower()
+        elif self._sort_col_index == 3:  # State
             return job.state
-        elif self._sort_col_index == 3:  # Partition
+        elif self._sort_col_index == 4:  # Partition
             return job.partition
-        elif self._sort_col_index == 4:  # GPU
+        elif self._sort_col_index == 5:  # GPU
             return job.gpus
-        elif self._sort_col_index == 5:  # Time
+        elif self._sort_col_index == 6:  # Time
             return _parse_runtime(job.runtime)
         return 0
 

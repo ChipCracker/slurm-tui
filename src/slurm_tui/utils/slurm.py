@@ -15,6 +15,7 @@ class Job:
 
     job_id: str
     name: str
+    user: str
     state: str
     partition: str
     gpus: int
@@ -61,8 +62,8 @@ class SlurmClient:
         """Get list of jobs from squeue."""
         jobs = []
 
-        # Format: JobID|Name|State|Partition|GRES|NumCPUs|MinMemory|TimeUsed|NodeList
-        fmt = "%i|%j|%t|%P|%b|%C|%m|%M|%N"
+        # Format: JobID|Name|User|State|Partition|GRES|NumCPUs|MinMemory|TimeUsed|NodeList
+        fmt = "%i|%j|%u|%t|%P|%b|%C|%m|%M|%N"
 
         cmd = ["squeue", "-h", "-o", fmt]
         if not all_users:
@@ -77,12 +78,12 @@ class SlurmClient:
                 continue
 
             parts = line.split("|")
-            if len(parts) < 9:
+            if len(parts) < 10:
                 continue
 
             # Parse GPU count from GRES (e.g., "gpu:4" or "gpu:a100:4")
             gpus = 0
-            gres = parts[4]
+            gres = parts[5]
             if gres and "gpu" in gres.lower():
                 match = re.search(r"gpu(?::[^:]+)?:(\d+)", gres)
                 if match:
@@ -92,13 +93,14 @@ class SlurmClient:
                 Job(
                     job_id=parts[0],
                     name=parts[1],
-                    state=parts[2],
-                    partition=parts[3],
+                    user=parts[2],
+                    state=parts[3],
+                    partition=parts[4],
                     gpus=gpus,
-                    cpus=int(parts[5]) if parts[5].isdigit() else 0,
-                    memory=parts[6],
-                    runtime=parts[7],
-                    node=parts[8] if parts[8] else "-",
+                    cpus=int(parts[6]) if parts[6].isdigit() else 0,
+                    memory=parts[7],
+                    runtime=parts[8],
+                    node=parts[9] if parts[9] else "-",
                 )
             )
 
