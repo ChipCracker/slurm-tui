@@ -26,10 +26,10 @@ STATUS_SYMBOLS = {
     "NF": ("✗", "#f7768e"),   # Node Fail - red
 }
 
-BASE_HEADER = "    ID       Name                   User         State    Part      GPU     Time"
+HEADER_ALL = "    ID       Name                   User         State    Part      GPU     Time"
+HEADER_MY  = "    ID       Name                   State    Part      GPU     Time"
 
-# (start, end) positions of each column label in BASE_HEADER
-COL_POSITIONS = [
+COL_POSITIONS_ALL = [
     (4, 6),    # ID
     (13, 17),  # Name
     (36, 40),  # User
@@ -39,7 +39,17 @@ COL_POSITIONS = [
     (76, 80),  # Time
 ]
 
-SORT_COLUMN_NAMES = ["ID", "Name", "User", "State", "Partition", "GPU", "Time"]
+COL_POSITIONS_MY = [
+    (4, 6),    # ID
+    (13, 17),  # Name
+    (36, 41),  # State
+    (45, 49),  # Part
+    (55, 58),  # GPU
+    (63, 67),  # Time
+]
+
+SORT_NAMES_ALL = ["ID", "Name", "User", "State", "Partition", "GPU", "Time"]
+SORT_NAMES_MY  = ["ID", "Name", "State", "Partition", "GPU", "Time"]
 
 
 def _parse_runtime(runtime: str) -> int:
@@ -158,6 +168,7 @@ class JobTableWidget(Widget):
         self._sort_reverse: bool = False
         self._display_jobs: list[Job] = []
         self._selected_ids: set[str] = set()
+        self._table_has_user_col: bool = False
 
     def compose(self) -> ComposeResult:
         # Section header
@@ -170,7 +181,7 @@ class JobTableWidget(Widget):
 
         # Column header
         yield Static(
-            BASE_HEADER,
+            HEADER_MY,
             id="column-header",
             classes="column-header",
         )
@@ -179,7 +190,7 @@ class JobTableWidget(Widget):
         # Data table without header (we made our own)
         table = DataTable(zebra_stripes=False, show_header=False)
         table.cursor_type = "row"
-        table.add_columns("id", "name", "user", "state", "partition", "gpu", "time")
+        table.add_columns("id", "name", "state", "partition", "gpu", "time")
         yield table
 
     def on_mount(self) -> None:
@@ -214,7 +225,21 @@ class JobTableWidget(Widget):
     def _update_table(self, old_job_id: str | None = None) -> None:
         """Update the data table with current jobs."""
         table = self.query_one(DataTable)
-        table.clear()
+        show_user = self.show_all_users
+
+        # Rebuild columns when user-column visibility changes
+        if show_user != self._table_has_user_col:
+            table.clear(columns=True)
+            if show_user:
+                table.add_columns("id", "name", "user", "state", "partition", "gpu", "time")
+            else:
+                table.add_columns("id", "name", "state", "partition", "gpu", "time")
+            self._table_has_user_col = show_user
+            # Reset sort when columns change
+            self._sort_col_index = None
+            self._sort_reverse = False
+        else:
+            table.clear()
 
         # Sort jobs if sort is active
         if self._sort_col_index is not None:
@@ -257,18 +282,26 @@ class JobTableWidget(Widget):
             else:
                 id_display = f"[#c0caf5]  {job.job_id:>6}[/]"
 
-            # User
-            user_display = f"[#c0caf5]{job.user[:10]:<10}[/]"
-
-            table.add_row(
-                id_display,
-                f"{job.name[:20]:<20}",
-                user_display,
-                state_display,
-                partition_display,
-                gpu_display,
-                time_display,
-            )
+            if show_user:
+                user_display = f"[#c0caf5]{job.user[:10]:<10}[/]"
+                table.add_row(
+                    id_display,
+                    f"{job.name[:20]:<20}",
+                    user_display,
+                    state_display,
+                    partition_display,
+                    gpu_display,
+                    time_display,
+                )
+            else:
+                table.add_row(
+                    id_display,
+                    f"{job.name[:20]:<20}",
+                    state_display,
+                    partition_display,
+                    gpu_display,
+                    time_display,
+                )
 
         # Update count
         count_label = self.query_one("#jobs-count", Static)
@@ -289,48 +322,63 @@ class JobTableWidget(Widget):
                     table.move_cursor(row=i)
                     break
 
+    @property
+    def _col_positions(self) -> list[tuple[int, int]]:
+        return COL_POSITIONS_ALL if self.show_all_users else COL_POSITIONS_MY
+
+    @property
+    def _base_header(self) -> str:
+        return HEADER_ALL if self.show_all_users else HEADER_MY
+
+    @property
+    def _sort_names(self) -> list[str]:
+        return SORT_NAMES_ALL if self.show_all_users else SORT_NAMES_MY
+
     def _build_column_header(self) -> str:
         """Build column header string with sort indicator."""
+        base = self._base_header
         if self._sort_col_index is None:
-            return BASE_HEADER
+            return base
 
+        positions = self._col_positions
         indicator = "▲" if not self._sort_reverse else "▼"
-        start, end = COL_POSITIONS[self._sort_col_index]
-        col_text = BASE_HEADER[start:end]
-        before = BASE_HEADER[:start]
-        # Steal one trailing space for the indicator to keep alignment
-        after = BASE_HEADER[end + 1:] if end < len(BASE_HEADER) else ""
+        start, end = positions[self._sort_col_index]
+        col_text = base[start:end]
+        before = base[:start]
+        after = base[end + 1:] if end < len(base) else ""
         return f"{before}[#7aa2f7]{col_text}{indicator}[/]{after}"
 
     def _get_sort_key(self, job: Job):
         """Return sort key for the current sort column."""
-        if self._sort_col_index == 0:  # ID
+        col_name = self._sort_names[self._sort_col_index]
+        if col_name == "ID":
             try:
                 return (0, int(job.job_id))
             except ValueError:
                 return (1, job.job_id)
-        elif self._sort_col_index == 1:  # Name
+        elif col_name == "Name":
             return job.name.lower()
-        elif self._sort_col_index == 2:  # User
+        elif col_name == "User":
             return job.user.lower()
-        elif self._sort_col_index == 3:  # State
+        elif col_name == "State":
             return job.state
-        elif self._sort_col_index == 4:  # Partition
+        elif col_name == "Partition":
             return job.partition
-        elif self._sort_col_index == 5:  # GPU
+        elif col_name == "GPU":
             return job.gpus
-        elif self._sort_col_index == 6:  # Time
+        elif col_name == "Time":
             return _parse_runtime(job.runtime)
         return 0
 
     def cycle_sort(self) -> None:
         """Cycle to the next sort column."""
+        positions = self._col_positions
         if self._sort_col_index is None:
             self._sort_col_index = 0
             self._sort_reverse = False
         else:
             self._sort_col_index += 1
-            if self._sort_col_index >= len(COL_POSITIONS):
+            if self._sort_col_index >= len(positions):
                 self._sort_col_index = None
                 self._sort_reverse = False
         self._update_table()
