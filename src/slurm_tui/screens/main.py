@@ -71,7 +71,7 @@ class MainScreen(Screen):
     MainScreen > #main-content > #left-panel > #top-panel > #top-right {
         width: auto;
         height: auto;
-        min-width: 40;
+        min-width: 20;
     }
 
     MainScreen > #main-content > #left-panel > #bottom-panel {

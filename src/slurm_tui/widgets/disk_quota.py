@@ -13,8 +13,8 @@ from ..utils.quota import QuotaMonitor, DiskQuota
 
 
 BAR_HEIGHT = 5
-BAR_WIDTH = 2
-COL_WIDTH = 8  # total width per column including padding
+BAR_WIDTH = 1
+COL_WIDTH = 5  # total width per column including padding
 BLOCKS = " ▁▂▃▄▅▆▇█"
 
 
@@ -40,7 +40,7 @@ class DiskQuotaWidget(Widget):
         background: transparent;
         border: none;
         height: auto;
-        padding: 0 2;
+        padding: 0 1;
         margin: 0 0 1 0;
     }
 
@@ -89,7 +89,7 @@ class DiskQuotaWidget(Widget):
             yield Static("Disk Quota", classes="section-title")
             yield Static(f"{int(self.refresh_interval)}s", classes="section-info")
 
-        yield Static("─" * 56, classes="separator")
+        yield Static("─" * 20, classes="separator")
         yield Static("[#565f89]Loading quota data...[/]", classes="quota-content")
 
     def on_mount(self) -> None:
@@ -157,7 +157,7 @@ class DiskQuotaWidget(Widget):
         # Label row: name + percent
         label_parts = []
         for q in self._quotas:
-            name = _short_fs(q.filesystem)[:4]
+            name = _short_fs(q.filesystem)[:3]
             color = _color_for(q.usage_percent)
             pct = f"{q.usage_percent:.0f}%"
             # Pad visible text to COL_WIDTH
