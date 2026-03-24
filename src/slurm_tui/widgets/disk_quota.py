@@ -10,7 +10,20 @@ from textual.widget import Widget
 from textual.worker import get_current_worker
 
 from ..utils.quota import QuotaMonitor, DiskQuota
-from .gpu_monitor import make_gradient_bar
+
+
+BAR_HEIGHT = 8
+BAR_WIDTH = 3
+COL_WIDTH = 10  # total width per column including padding
+BLOCKS = " ▁▂▃▄▅▆▇█"
+
+
+def _color_for(percent: float) -> str:
+    if percent < 50:
+        return "#9ece6a"
+    elif percent < 80:
+        return "#e0af68"
+    return "#f7768e"
 
 
 def _short_fs(filesystem: str) -> str:
@@ -113,27 +126,52 @@ class DiskQuotaWidget(Widget):
             self._render_expanded(content)
 
     def _render_expanded(self, content: Static) -> None:
-        """Render full quota display."""
-        lines = []
+        """Render vertical bars side by side."""
+        if not self._quotas:
+            content.update("[#565f89]No quota data[/]")
+            return
+
+        # Build vertical bars row by row (top to bottom)
+        rows: list[str] = []
+        for row in range(BAR_HEIGHT, 0, -1):
+            parts = []
+            for q in self._quotas:
+                pct = q.usage_percent
+                color = _color_for(pct)
+                filled_rows = pct / 100 * BAR_HEIGHT
+                if filled_rows >= row:
+                    # Fully filled row
+                    block = "█" * BAR_WIDTH
+                elif filled_rows >= row - 1:
+                    # Partial row — use fractional block
+                    frac = filled_rows - (row - 1)
+                    idx = int(frac * (len(BLOCKS) - 1))
+                    block = BLOCKS[idx] * BAR_WIDTH
+                else:
+                    # Empty row
+                    block = "░" * BAR_WIDTH
+                pad = COL_WIDTH - BAR_WIDTH
+                parts.append(f"[{color}]{block}[/]{' ' * pad}")
+            rows.append("  ".join(parts))
+
+        # Labels row (filesystem name)
+        name_parts = []
         for q in self._quotas:
-            name = _short_fs(q.filesystem)
-            bar = make_gradient_bar(q.usage_percent, width=20)
-            percent = q.usage_percent
+            name = _short_fs(q.filesystem)[:COL_WIDTH]
+            name_parts.append(f"[#c0caf5]{name:<{COL_WIDTH}}[/]")
+        rows.append("  ".join(name_parts))
 
-            if percent < 50:
-                pct_color = "#9ece6a"
-            elif percent < 80:
-                pct_color = "#e0af68"
-            else:
-                pct_color = "#f7768e"
+        # Percent row
+        pct_parts = []
+        for q in self._quotas:
+            color = _color_for(q.usage_percent)
+            pct_str = f"{q.usage_percent:.0f}%"
+            size_str = f"{q.used}/{q.quota}"
+            label = f"{pct_str} {size_str}"[:COL_WIDTH]
+            pct_parts.append(f"[{color}]{label:<{COL_WIDTH}}[/]")
+        rows.append("  ".join(pct_parts))
 
-            lines.append(
-                f"[#c0caf5]{name:<12}[/]"
-                f"{bar}  "
-                f"[{pct_color}]{percent:5.1f}%[/]  "
-                f"[#565f89]{q.used} / {q.quota}[/]"
-            )
-        content.update("\n".join(lines))
+        content.update("\n".join(rows))
 
     def _render_collapsed(self, content: Static) -> None:
         """Render compact one-line summary."""
