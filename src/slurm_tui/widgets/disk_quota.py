@@ -28,9 +28,25 @@ def _color_for(percent: float) -> str:
 
 
 def _short_fs(filesystem: str) -> str:
-    """Shorten filesystem path for display."""
-    # Show last component, e.g. /dev/mapper/home -> home
-    return filesystem.rstrip("/").rsplit("/", 1)[-1] if "/" in filesystem else filesystem
+    """Shorten filesystem path for display.
+
+    NFS format: host:/path → use first unique path segment.
+    Examples:
+        141.75.89.64:/mnt/mpatha/home/user → home
+        141.75.89.6:/nfs/scratch → nfs
+        141.75.89.66:/nfs1/scratch → nfs1
+    """
+    # Strip NFS host prefix
+    path = filesystem.split(":")[-1] if ":" in filesystem else filesystem
+    parts = [p for p in path.strip("/").split("/") if p]
+    if not parts:
+        return filesystem
+    # Skip generic prefixes like mnt, mpatha
+    skip = {"mnt", "mpatha", "dev", "mapper"}
+    for p in parts:
+        if p.lower() not in skip:
+            return p
+    return parts[-1]
 
 
 class DiskQuotaWidget(Widget):

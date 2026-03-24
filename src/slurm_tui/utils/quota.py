@@ -63,26 +63,44 @@ class QuotaMonitor:
     def _parse_output(self, output: str) -> list[DiskQuota]:
         """Parse quota -s output.
 
-        Expected format:
-        Disk quotas for user foo (uid 1234):
-             Filesystem   space   quota   limit   grace   files   quota   limit   grace
-             /dev/sda1    150M    500M    600M              1234   5000    6000
+        Handles multi-line entries where the filesystem path is on one line
+        and the values are indented on the next line:
+            141.75.89.64:/mnt/mpatha/home/user
+                              9847M  20480M  22528M           68837       0       0
         """
         quotas = []
         lines = output.strip().split("\n")
         # Skip header lines (first 2)
+        pending_fs = None
         for line in lines[2:]:
-            line = line.strip()
-            if not line:
+            if not line.strip():
                 continue
             parts = line.split()
-            if len(parts) < 4:
+
+            # Line with only a filesystem path (no numeric values following)
+            if len(parts) == 1:
+                pending_fs = parts[0]
                 continue
 
-            filesystem = parts[0]
-            used_str = parts[1]
-            quota_str = parts[2]
-            limit_str = parts[3]
+            # Continuation line with values (indented, no filesystem)
+            if pending_fs and line[0] == " ":
+                filesystem = pending_fs
+                pending_fs = None
+                values = parts
+            elif len(parts) >= 4:
+                filesystem = parts[0]
+                values = parts[1:]
+                pending_fs = None
+            else:
+                pending_fs = None
+                continue
+
+            if len(values) < 3:
+                continue
+
+            used_str = values[0]
+            quota_str = values[1]
+            limit_str = values[2]
 
             used_bytes = _parse_size(used_str)
             quota_bytes = _parse_size(quota_str)
