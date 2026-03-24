@@ -335,20 +335,21 @@ class MainScreen(Screen):
             details_panel.update_partition(partition, self.gpu_monitor)
 
     def action_change_qos(self) -> None:
-        """Change QOS of a pending job."""
+        """Change QOS of pending job(s)."""
         job_table = self.query_one(JobTableWidget)
-        job = job_table.get_selected_job()
+        jobs = job_table.get_selected_jobs()
 
-        if job is None:
+        if not jobs:
             self.notify("No job selected", severity="warning")
             return
 
-        if job.state != "PD":
-            self.notify(f"Job {job.job_id} is not pending (state: {job.state})", severity="warning")
+        pending = [j for j in jobs if j.state == "PD"]
+        if not pending:
+            self.notify("No pending jobs in selection", severity="warning")
             return
 
         from .job_submit import QosUpdateScreen
-        self.app.push_screen(QosUpdateScreen(job, self.slurm_client))
+        self.app.push_screen(QosUpdateScreen(pending, self.slurm_client))
 
     def action_toggle_quota_visible(self) -> None:
         """Toggle disk quota panel visibility."""

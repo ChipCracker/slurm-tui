@@ -488,18 +488,21 @@ class QosUpdateScreen(ModalScreen):
         ("escape", "dismiss", "Cancel"),
     ]
 
-    def __init__(self, job: Job, slurm_client: SlurmClient):
+    def __init__(self, jobs: list[Job] | Job, slurm_client: SlurmClient):
         super().__init__()
-        self.job = job
+        self.jobs = jobs if isinstance(jobs, list) else [jobs]
         self.slurm_client = slurm_client
         self._qos_list: list[str] = []
 
     def compose(self) -> ComposeResult:
         self._qos_list = self.slurm_client.get_available_qos()
-        info_text = f"  {self.job.job_id}  {self.job.name}  ({self.job.partition})"
+        count = len(self.jobs)
+        title = f"Change QOS — {count} Job{'s' if count > 1 else ''}"
+        info_lines = [f"  {j.job_id}  {j.name}  ({j.partition})" for j in self.jobs]
+        info_text = "\n".join(info_lines)
 
         with Vertical():
-            yield Static("Change QOS", classes="title")
+            yield Static(title, classes="title")
             yield Static("─" * 46, classes="separator")
             yield Static(info_text, classes="job-info")
 
@@ -540,11 +543,18 @@ class QosUpdateScreen(ModalScreen):
             self.notify("No QOS selected", severity="warning")
             return
 
-        success, message = self.slurm_client.update_job_qos(self.job.job_id, qos)
-        if success:
-            self.notify(message, severity="information")
+        failed = []
+        for job in self.jobs:
+            success, message = self.slurm_client.update_job_qos(job.job_id, qos)
+            if not success:
+                failed.append(f"{job.job_id}: {message}")
+
+        if failed:
+            self.notify(f"Failed: {', '.join(failed)}", severity="error")
         else:
-            self.notify(f"Error: {message}", severity="error")
+            count = len(self.jobs)
+            ids = ", ".join(j.job_id for j in self.jobs)
+            self.notify(f"QOS → {qos} for {count} job{'s' if count > 1 else ''}: {ids}", severity="information")
 
         self.app.pop_screen()
 
