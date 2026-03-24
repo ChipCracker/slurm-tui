@@ -10,9 +10,10 @@ from textual.containers import Container, Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import Static
 
-from ..widgets import GPUMonitorWidget, GPUHoursWidget, JobTableWidget, JobDetailsWidget
+from ..widgets import GPUMonitorWidget, GPUHoursWidget, JobTableWidget, JobDetailsWidget, DiskQuotaWidget
 from ..utils.slurm import SlurmClient
 from ..utils.gpu import GPUMonitor
+from ..utils.quota import QuotaMonitor
 from ..utils.bookmarks import BookmarkManager
 
 
@@ -60,16 +61,16 @@ class MainScreen(Screen):
         layout: horizontal;
         height: auto;
         min-height: 6;
-        max-height: 10;
+        max-height: 24;
     }
 
-    MainScreen > #main-content > #left-panel > #top-panel > GPUMonitorWidget {
+    MainScreen > #main-content > #left-panel > #top-panel > #top-left {
         width: 1fr;
     }
 
-    MainScreen > #main-content > #left-panel > #gpu-hours-panel {
-        height: auto;
-        max-height: 24;
+    MainScreen > #main-content > #left-panel > #top-panel > #top-right {
+        width: auto;
+        min-width: 40;
     }
 
     MainScreen > #main-content > #left-panel > #bottom-panel {
@@ -113,6 +114,7 @@ class MainScreen(Screen):
         ("b", "bookmarks", "Bookmarks"),
         ("B", "add_bookmark", "Add Bookmark"),
         ("e", "editor", "Editor"),
+        ("f", "toggle_quota", "Quota"),
         ("t", "toggle_console", "Terminal"),
         ("?", "help", "Help"),
     ]
@@ -121,6 +123,7 @@ class MainScreen(Screen):
         super().__init__()
         self.slurm_client = SlurmClient()
         self.gpu_monitor = GPUMonitor()
+        self.quota_monitor = QuotaMonitor()
         self.bookmark_manager = BookmarkManager()
 
     def compose(self) -> ComposeResult:
@@ -131,21 +134,24 @@ class MainScreen(Screen):
 
         # Main 2-column layout
         with Horizontal(id="main-content"):
-            # Left panel - GPU monitor, hours, jobs
+            # Left panel - GPU monitor, quota, hours, jobs
             with Vertical(id="left-panel"):
-                # GPU Monitor (full width)
+                # Top row: GPU Monitor (left) + Disk Quota (right)
                 with Container(id="top-panel"):
-                    yield GPUMonitorWidget(
-                        gpu_monitor=self.gpu_monitor,
-                        refresh_interval=10.0,
-                    )
-
-                # GPU Hours
-                with Container(id="gpu-hours-panel"):
-                    yield GPUHoursWidget(
-                        gpu_monitor=self.gpu_monitor,
-                        refresh_interval=60.0,
-                    )
+                    with Vertical(id="top-left"):
+                        yield GPUMonitorWidget(
+                            gpu_monitor=self.gpu_monitor,
+                            refresh_interval=10.0,
+                        )
+                        yield GPUHoursWidget(
+                            gpu_monitor=self.gpu_monitor,
+                            refresh_interval=60.0,
+                        )
+                    with Vertical(id="top-right"):
+                        yield DiskQuotaWidget(
+                            quota_monitor=self.quota_monitor,
+                            refresh_interval=60.0,
+                        )
 
                 # Jobs table
                 with Container(id="bottom-panel"):
@@ -166,7 +172,7 @@ class MainScreen(Screen):
             "[#7aa2f7]r[/]efresh  [#7aa2f7]a[/]ttach  [#7aa2f7]c[/]ancel  [#7aa2f7]l[/]ogs  "
             "[#7aa2f7]n[/]ew  [#7aa2f7]i[/]nteractive  [#7aa2f7]u[/]sers  "
             "[#7aa2f7]s[/]ort  [#7aa2f7]d[/]ir  [#7aa2f7]o[/]verview  [#7aa2f7]h[/]ours  "
-            "[#7aa2f7]g[/]pu  [#7aa2f7]v[/]GPU  [#7aa2f7]b[/]ookmarks  "
+            "[#7aa2f7]g[/]pu  [#7aa2f7]v[/]GPU  [#7aa2f7]f[/]quota  [#7aa2f7]b[/]ookmarks  "
             "[#7aa2f7]e[/]ditor  [#7aa2f7]t[/]erminal  [#7aa2f7]q[/]uit",
             classes="keybindings",
         )
@@ -209,6 +215,9 @@ class MainScreen(Screen):
 
         gpu_hours = self.query_one(GPUHoursWidget)
         gpu_hours.refresh_data()
+
+        disk_quota = self.query_one(DiskQuotaWidget)
+        disk_quota.refresh_data()
 
         job_table = self.query_one(JobTableWidget)
         job_table.refresh_data()
@@ -320,6 +329,11 @@ class MainScreen(Screen):
             self.notify("GPU details closed")
         else:
             details_panel.update_partition(partition, self.gpu_monitor)
+
+    def action_toggle_quota(self) -> None:
+        """Toggle disk quota collapsed/expanded."""
+        disk_quota = self.query_one(DiskQuotaWidget)
+        disk_quota.toggle_collapsed()
 
     def action_help(self) -> None:
         """Show help."""
