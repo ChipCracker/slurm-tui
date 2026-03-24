@@ -14,7 +14,8 @@ from ..utils.quota import QuotaMonitor, DiskQuota
 
 BAR_HEIGHT = 5
 BAR_WIDTH = 1
-COL_WIDTH = 5  # total width per column including padding
+COL_WIDTH = 2  # bar char + 1 space padding
+NAME_LEN = 4   # max vertical name characters
 BLOCKS = " ▁▂▃▄▅▆▇█"
 
 
@@ -126,13 +127,16 @@ class DiskQuotaWidget(Widget):
             self._render_expanded(content)
 
     def _render_expanded(self, content: Static) -> None:
-        """Render vertical bars side by side."""
+        """Render vertical bars with vertically stacked mount names."""
         if not self._quotas:
             content.update("[#565f89]No quota data[/]")
             return
 
-        # Build vertical bars row by row (top to bottom)
+        pad = " " * (COL_WIDTH - BAR_WIDTH)
+        sep = " "
         rows: list[str] = []
+
+        # Bar rows (top to bottom)
         for row in range(BAR_HEIGHT, 0, -1):
             parts = []
             for q in self._quotas:
@@ -140,31 +144,31 @@ class DiskQuotaWidget(Widget):
                 color = _color_for(pct)
                 filled_rows = pct / 100 * BAR_HEIGHT
                 if filled_rows >= row:
-                    # Fully filled row
                     block = "█" * BAR_WIDTH
                 elif filled_rows >= row - 1:
-                    # Partial row — use fractional block
                     frac = filled_rows - (row - 1)
                     idx = int(frac * (len(BLOCKS) - 1))
                     block = BLOCKS[idx] * BAR_WIDTH
                 else:
-                    # Empty row
                     block = "░" * BAR_WIDTH
-                pad = COL_WIDTH - BAR_WIDTH
-                parts.append(f"[{color}]{block}[/]{' ' * pad}")
-            rows.append(" ".join(parts))
+                parts.append(f"[{color}]{block}[/]{pad}")
+            rows.append(sep.join(parts))
 
-        # Label row: name + percent
-        label_parts = []
+        # Percent row
+        pct_parts = []
         for q in self._quotas:
-            name = _short_fs(q.filesystem)[:3]
             color = _color_for(q.usage_percent)
             pct = f"{q.usage_percent:.0f}%"
-            # Pad visible text to COL_WIDTH
-            visible_len = len(name) + 1 + len(pct)
-            pad = " " * max(0, COL_WIDTH - visible_len)
-            label_parts.append(f"[#565f89]{name}[/] [{color}]{pct}[/]{pad}")
-        rows.append(" ".join(label_parts))
+            pct_parts.append(f"[{color}]{pct:<{COL_WIDTH}}[/]")
+        rows.append(sep.join(pct_parts))
+
+        # Vertical name rows (one char per row)
+        names = [_short_fs(q.filesystem)[:NAME_LEN].ljust(NAME_LEN) for q in self._quotas]
+        for i in range(NAME_LEN):
+            char_parts = []
+            for name in names:
+                char_parts.append(f"[#565f89]{name[i]}[/]{pad}")
+            rows.append(sep.join(char_parts))
 
         content.update("\n".join(rows))
 
