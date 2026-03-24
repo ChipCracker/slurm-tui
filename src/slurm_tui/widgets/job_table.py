@@ -26,8 +26,8 @@ STATUS_SYMBOLS = {
     "NF": ("✗", "#f7768e"),   # Node Fail - red
 }
 
-HEADER_ALL = "    ID       Name                   User         State    Part      GPU     Time"
-HEADER_MY  = "    ID       Name                   State    Part      GPU     Time"
+HEADER_ALL = "    ID       Name                   User         State    Part      QOS          GPU     Time"
+HEADER_MY  = "    ID       Name                   State    Part      QOS          GPU     Time"
 
 COL_POSITIONS_ALL = [
     (4, 6),    # ID
@@ -35,8 +35,9 @@ COL_POSITIONS_ALL = [
     (36, 40),  # User
     (49, 54),  # State
     (58, 62),  # Part
-    (68, 71),  # GPU
-    (76, 80),  # Time
+    (68, 71),  # QOS
+    (81, 84),  # GPU
+    (89, 93),  # Time
 ]
 
 COL_POSITIONS_MY = [
@@ -44,12 +45,13 @@ COL_POSITIONS_MY = [
     (13, 17),  # Name
     (36, 41),  # State
     (45, 49),  # Part
-    (55, 58),  # GPU
-    (63, 67),  # Time
+    (55, 58),  # QOS
+    (68, 71),  # GPU
+    (76, 80),  # Time
 ]
 
-SORT_NAMES_ALL = ["ID", "Name", "User", "State", "Partition", "GPU", "Time"]
-SORT_NAMES_MY  = ["ID", "Name", "State", "Partition", "GPU", "Time"]
+SORT_NAMES_ALL = ["ID", "Name", "User", "State", "Partition", "QOS", "GPU", "Time"]
+SORT_NAMES_MY  = ["ID", "Name", "State", "Partition", "QOS", "GPU", "Time"]
 
 
 def _parse_runtime(runtime: str) -> int:
@@ -177,7 +179,7 @@ class JobTableWidget(Widget):
             yield Static("", id="jobs-count", classes="section-info")
 
         # Separator line
-        yield Static("─" * 80, classes="separator")
+        yield Static("─" * 94, classes="separator")
 
         # Column header
         yield Static(
@@ -185,12 +187,12 @@ class JobTableWidget(Widget):
             id="column-header",
             classes="column-header",
         )
-        yield Static("─" * 80, classes="header-separator")
+        yield Static("─" * 94, classes="header-separator")
 
         # Data table without header (we made our own)
         table = DataTable(zebra_stripes=False, show_header=False)
         table.cursor_type = "row"
-        table.add_columns("id", "name", "state", "partition", "gpu", "time")
+        table.add_columns("id", "name", "state", "partition", "qos", "gpu", "time")
         yield table
 
     def on_mount(self) -> None:
@@ -231,9 +233,9 @@ class JobTableWidget(Widget):
         if show_user != self._table_has_user_col:
             table.clear(columns=True)
             if show_user:
-                table.add_columns("id", "name", "user", "state", "partition", "gpu", "time")
+                table.add_columns("id", "name", "user", "state", "partition", "qos", "gpu", "time")
             else:
-                table.add_columns("id", "name", "state", "partition", "gpu", "time")
+                table.add_columns("id", "name", "state", "partition", "qos", "gpu", "time")
             self._table_has_user_col = show_user
             # Reset sort when columns change
             self._sort_col_index = None
@@ -282,6 +284,9 @@ class JobTableWidget(Widget):
             else:
                 id_display = f"[#c0caf5]  {job.job_id:>6}[/]"
 
+            # QOS
+            qos_display = f"[#e0af68]{job.qos[:10]:<10}[/]"
+
             if show_user:
                 user_display = f"[#c0caf5]{job.user[:10]:<10}[/]"
                 table.add_row(
@@ -290,6 +295,7 @@ class JobTableWidget(Widget):
                     user_display,
                     state_display,
                     partition_display,
+                    qos_display,
                     gpu_display,
                     time_display,
                 )
@@ -299,6 +305,7 @@ class JobTableWidget(Widget):
                     f"{job.name[:20]:<20}",
                     state_display,
                     partition_display,
+                    qos_display,
                     gpu_display,
                     time_display,
                 )
@@ -364,6 +371,8 @@ class JobTableWidget(Widget):
             return job.state
         elif col_name == "Partition":
             return job.partition
+        elif col_name == "QOS":
+            return job.qos.lower()
         elif col_name == "GPU":
             return job.gpus
         elif col_name == "Time":
