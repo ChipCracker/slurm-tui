@@ -60,14 +60,17 @@ class MainScreen(Screen):
     MainScreen > #main-content > #left-panel > #top-panel {
         layout: horizontal;
         height: auto;
+        max-height: 50%;
     }
 
     MainScreen > #main-content > #left-panel > #top-panel > #top-left {
         width: 1fr;
+        height: auto;
     }
 
     MainScreen > #main-content > #left-panel > #top-panel > #top-right {
         width: auto;
+        height: auto;
         min-width: 40;
     }
 
@@ -330,9 +333,9 @@ class MainScreen(Screen):
             details_panel.update_partition(partition, self.gpu_monitor)
 
     def action_toggle_quota_visible(self) -> None:
-        """Toggle disk quota widget visibility."""
-        disk_quota = self.query_one(DiskQuotaWidget)
-        disk_quota.toggle_visible()
+        """Toggle disk quota panel visibility."""
+        panel = self.query_one("#top-right")
+        panel.display = not panel.display
 
     def action_toggle_quota_collapse(self) -> None:
         """Toggle disk quota collapsed/expanded."""
