@@ -201,3 +201,7 @@ class DiskQuotaWidget(Widget):
             self._render_collapsed(content)
         else:
             self._render_expanded(content)
+
+    def toggle_visible(self) -> None:
+        """Toggle widget visibility."""
+        self.display = not self.display

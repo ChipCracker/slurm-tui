@@ -114,7 +114,8 @@ class MainScreen(Screen):
         ("b", "bookmarks", "Bookmarks"),
         ("B", "add_bookmark", "Add Bookmark"),
         ("e", "editor", "Editor"),
-        ("f", "toggle_quota", "Quota"),
+        ("f", "toggle_quota_visible", "Quota"),
+        ("F", "toggle_quota_collapse", "Quota ↕"),
         ("t", "toggle_console", "Terminal"),
         ("?", "help", "Help"),
     ]
@@ -330,7 +331,12 @@ class MainScreen(Screen):
         else:
             details_panel.update_partition(partition, self.gpu_monitor)
 
-    def action_toggle_quota(self) -> None:
+    def action_toggle_quota_visible(self) -> None:
+        """Toggle disk quota widget visibility."""
+        disk_quota = self.query_one(DiskQuotaWidget)
+        disk_quota.toggle_visible()
+
+    def action_toggle_quota_collapse(self) -> None:
         """Toggle disk quota collapsed/expanded."""
         disk_quota = self.query_one(DiskQuotaWidget)
         disk_quota.toggle_collapsed()
