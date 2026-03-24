@@ -66,6 +66,7 @@ class MainScreen(Screen):
     MainScreen > #main-content > #left-panel > #top-panel > #top-left {
         width: 1fr;
         height: auto;
+        overflow-y: auto;
     }
 
     MainScreen > #main-content > #left-panel > #top-panel > #top-right {
