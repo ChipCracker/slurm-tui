@@ -220,6 +220,22 @@ class SlurmClient:
             "bash",
         ]
 
+    def update_job_qos(self, job_id: str, qos: str) -> tuple[bool, str]:
+        """Update the QOS of a pending job."""
+        cmd = ["scontrol", "update", f"job={job_id}", f"qos={qos}"]
+        stdout, stderr, rc = self._run_command(cmd)
+        if rc == 0:
+            return True, f"Job {job_id} QOS updated to {qos}"
+        return False, stderr.strip() or "Failed to update QOS"
+
+    def get_available_qos(self) -> list[str]:
+        """Get list of available QOS names."""
+        cmd = ["sacctmgr", "show", "qos", "format=Name", "-n", "-P"]
+        stdout, stderr, rc = self._run_command(cmd)
+        if rc != 0:
+            return []
+        return [q.strip() for q in stdout.strip().split("\n") if q.strip()]
+
     def is_available(self) -> bool:
         """Check if SLURM commands are available."""
         _, _, rc = self._run_command(["squeue", "--version"])

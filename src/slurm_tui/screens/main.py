@@ -116,6 +116,7 @@ class MainScreen(Screen):
         ("b", "bookmarks", "Bookmarks"),
         ("B", "add_bookmark", "Add Bookmark"),
         ("e", "editor", "Editor"),
+        ("p", "change_qos", "QOS"),
         ("f", "toggle_quota_visible", "Quota"),
         ("F", "toggle_quota_collapse", "Quota ↕"),
         ("t", "toggle_console", "Terminal"),
@@ -175,7 +176,7 @@ class MainScreen(Screen):
             "[#7aa2f7]r[/]efresh  [#7aa2f7]a[/]ttach  [#7aa2f7]c[/]ancel  [#7aa2f7]l[/]ogs  "
             "[#7aa2f7]n[/]ew  [#7aa2f7]i[/]nteractive  [#7aa2f7]u[/]sers  "
             "[#7aa2f7]s[/]ort  [#7aa2f7]d[/]ir  [#7aa2f7]o[/]verview  [#7aa2f7]h[/]ours  "
-            "[#7aa2f7]g[/]pu  [#7aa2f7]v[/]GPU  [#7aa2f7]f[/]quota  [#7aa2f7]b[/]ookmarks  "
+            "[#7aa2f7]g[/]pu  [#7aa2f7]v[/]GPU  [#7aa2f7]p[/]qos  [#7aa2f7]f[/]quota  [#7aa2f7]b[/]ookmarks  "
             "[#7aa2f7]e[/]ditor  [#7aa2f7]t[/]erminal  [#7aa2f7]q[/]uit",
             classes="keybindings",
         )
@@ -332,6 +333,22 @@ class MainScreen(Screen):
             self.notify("GPU details closed")
         else:
             details_panel.update_partition(partition, self.gpu_monitor)
+
+    def action_change_qos(self) -> None:
+        """Change QOS of a pending job."""
+        job_table = self.query_one(JobTableWidget)
+        job = job_table.get_selected_job()
+
+        if job is None:
+            self.notify("No job selected", severity="warning")
+            return
+
+        if job.state != "PD":
+            self.notify(f"Job {job.job_id} is not pending (state: {job.state})", severity="warning")
+            return
+
+        from .job_submit import QosUpdateScreen
+        self.app.push_screen(QosUpdateScreen(job, self.slurm_client))
 
     def action_toggle_quota_visible(self) -> None:
         """Toggle disk quota panel visibility."""

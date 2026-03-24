@@ -433,3 +433,120 @@ class ConfirmCancelScreen(ModalScreen):
 
     def action_confirm(self) -> None:
         self._cancel_job()
+
+
+class QosUpdateScreen(ModalScreen):
+    """Modal screen to change QOS of a pending job."""
+
+    DEFAULT_CSS = """
+    QosUpdateScreen {
+        align: center middle;
+        background: rgba(26, 27, 38, 0.9);
+    }
+
+    QosUpdateScreen > Vertical {
+        width: 50;
+        height: auto;
+        background: #1a1b26;
+        padding: 1 2;
+    }
+
+    QosUpdateScreen .title {
+        text-style: bold;
+        text-align: center;
+        color: #7aa2f7;
+        padding: 0 0 1 0;
+    }
+
+    QosUpdateScreen .separator {
+        color: #414868;
+        margin-bottom: 1;
+    }
+
+    QosUpdateScreen .job-info {
+        text-align: center;
+        padding: 1;
+        background: #1e2030;
+        margin: 1 0;
+        color: #565f89;
+    }
+
+    QosUpdateScreen .buttons {
+        layout: horizontal;
+        align: center middle;
+        height: auto;
+        margin-top: 1;
+        padding-top: 1;
+    }
+
+    QosUpdateScreen .buttons Button {
+        margin: 0 1;
+    }
+    """
+
+    BINDINGS = [
+        ("escape", "dismiss", "Cancel"),
+    ]
+
+    def __init__(self, job: Job, slurm_client: SlurmClient):
+        super().__init__()
+        self.job = job
+        self.slurm_client = slurm_client
+        self._qos_list: list[str] = []
+
+    def compose(self) -> ComposeResult:
+        self._qos_list = self.slurm_client.get_available_qos()
+        info_text = f"  {self.job.job_id}  {self.job.name}  ({self.job.partition})"
+
+        with Vertical():
+            yield Static("Change QOS", classes="title")
+            yield Static("─" * 46, classes="separator")
+            yield Static(info_text, classes="job-info")
+
+            if self._qos_list:
+                options = [(q, q) for q in self._qos_list]
+                yield Select(options, prompt="Select QOS", id="qos-select")
+            else:
+                yield Input(placeholder="Enter QOS name", id="qos-input")
+
+            yield Static("─" * 46, classes="separator")
+            with Horizontal(classes="buttons"):
+                yield Button("Cancel", variant="default", id="cancel")
+                yield Button("Apply", variant="primary", id="apply")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "cancel":
+            self.app.pop_screen()
+        elif event.button.id == "apply":
+            self._apply_qos()
+
+    def _apply_qos(self) -> None:
+        qos = None
+        try:
+            select = self.query_one("#qos-select", Select)
+            if select.value != Select.BLANK:
+                qos = str(select.value)
+        except Exception:
+            pass
+
+        if qos is None:
+            try:
+                inp = self.query_one("#qos-input", Input)
+                qos = inp.value.strip()
+            except Exception:
+                pass
+
+        if not qos:
+            self.notify("No QOS selected", severity="warning")
+            return
+
+        success, message = self.slurm_client.update_job_qos(self.job.job_id, qos)
+        if success:
+            self.notify(message, severity="information")
+        else:
+            self.notify(f"Error: {message}", severity="error")
+
+        self.app.pop_screen()
+
+    def action_dismiss(self) -> None:
+        self.app.pop_screen()
