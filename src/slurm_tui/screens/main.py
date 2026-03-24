@@ -60,8 +60,6 @@ class MainScreen(Screen):
     MainScreen > #main-content > #left-panel > #top-panel {
         layout: horizontal;
         height: auto;
-        min-height: 6;
-        max-height: 24;
     }
 
     MainScreen > #main-content > #left-panel > #top-panel > #top-left {
