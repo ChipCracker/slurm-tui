@@ -12,9 +12,9 @@ from textual.worker import get_current_worker
 from ..utils.quota import QuotaMonitor, DiskQuota
 
 
-BAR_HEIGHT = 8
-BAR_WIDTH = 3
-COL_WIDTH = 10  # total width per column including padding
+BAR_HEIGHT = 5
+BAR_WIDTH = 2
+COL_WIDTH = 8  # total width per column including padding
 BLOCKS = " ▁▂▃▄▅▆▇█"
 
 
@@ -152,24 +152,19 @@ class DiskQuotaWidget(Widget):
                     block = "░" * BAR_WIDTH
                 pad = COL_WIDTH - BAR_WIDTH
                 parts.append(f"[{color}]{block}[/]{' ' * pad}")
-            rows.append("  ".join(parts))
+            rows.append(" ".join(parts))
 
-        # Labels row (filesystem name)
-        name_parts = []
+        # Label row: name + percent
+        label_parts = []
         for q in self._quotas:
-            name = _short_fs(q.filesystem)[:COL_WIDTH]
-            name_parts.append(f"[#c0caf5]{name:<{COL_WIDTH}}[/]")
-        rows.append("  ".join(name_parts))
-
-        # Percent row
-        pct_parts = []
-        for q in self._quotas:
+            name = _short_fs(q.filesystem)[:4]
             color = _color_for(q.usage_percent)
-            pct_str = f"{q.usage_percent:.0f}%"
-            size_str = f"{q.used}/{q.quota}"
-            label = f"{pct_str} {size_str}"[:COL_WIDTH]
-            pct_parts.append(f"[{color}]{label:<{COL_WIDTH}}[/]")
-        rows.append("  ".join(pct_parts))
+            pct = f"{q.usage_percent:.0f}%"
+            # Pad visible text to COL_WIDTH
+            visible_len = len(name) + 1 + len(pct)
+            pad = " " * max(0, COL_WIDTH - visible_len)
+            label_parts.append(f"[#565f89]{name}[/] [{color}]{pct}[/]{pad}")
+        rows.append(" ".join(label_parts))
 
         content.update("\n".join(rows))
 
