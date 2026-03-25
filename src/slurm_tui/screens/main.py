@@ -58,21 +58,8 @@ class MainScreen(Screen):
     }
 
     MainScreen > #main-content > #left-panel > #top-panel {
-        layout: horizontal;
         height: auto;
         max-height: 50%;
-    }
-
-    MainScreen > #main-content > #left-panel > #top-panel > #top-left {
-        width: 1fr;
-        height: auto;
-        overflow-y: auto;
-    }
-
-    MainScreen > #main-content > #left-panel > #top-panel > #top-right {
-        width: auto;
-        height: auto;
-        min-width: 20;
     }
 
     MainScreen > #main-content > #left-panel > #bottom-panel {
@@ -138,24 +125,21 @@ class MainScreen(Screen):
 
         # Main 2-column layout
         with Horizontal(id="main-content"):
-            # Left panel - GPU monitor, quota, hours, jobs
+            # Left panel - GPU monitor, hours, quota, jobs
             with Vertical(id="left-panel"):
-                # Top row: GPU Monitor (left) + Disk Quota (right)
                 with Container(id="top-panel"):
-                    with Vertical(id="top-left"):
-                        yield GPUMonitorWidget(
-                            gpu_monitor=self.gpu_monitor,
-                            refresh_interval=10.0,
-                        )
-                        yield GPUHoursWidget(
-                            gpu_monitor=self.gpu_monitor,
-                            refresh_interval=60.0,
-                        )
-                    with Vertical(id="top-right"):
-                        yield DiskQuotaWidget(
-                            quota_monitor=self.quota_monitor,
-                            refresh_interval=60.0,
-                        )
+                    yield GPUMonitorWidget(
+                        gpu_monitor=self.gpu_monitor,
+                        refresh_interval=10.0,
+                    )
+                    yield GPUHoursWidget(
+                        gpu_monitor=self.gpu_monitor,
+                        refresh_interval=60.0,
+                    )
+                    yield DiskQuotaWidget(
+                        quota_monitor=self.quota_monitor,
+                        refresh_interval=60.0,
+                    )
 
                 # Jobs table
                 with Container(id="bottom-panel"):
@@ -352,9 +336,9 @@ class MainScreen(Screen):
         self.app.push_screen(QosUpdateScreen(pending, self.slurm_client))
 
     def action_toggle_quota_visible(self) -> None:
-        """Toggle disk quota panel visibility."""
-        panel = self.query_one("#top-right")
-        panel.display = not panel.display
+        """Toggle disk quota widget visibility."""
+        disk_quota = self.query_one(DiskQuotaWidget)
+        disk_quota.toggle_visible()
 
     def action_toggle_quota_collapse(self) -> None:
         """Toggle disk quota collapsed/expanded."""
