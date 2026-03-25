@@ -12,11 +12,7 @@ from textual.worker import get_current_worker
 from ..utils.quota import QuotaMonitor, DiskQuota
 
 
-BAR_HEIGHT = 5
-BAR_WIDTH = 1
-COL_WIDTH = 2  # bar char + 1 space padding
-NAME_LEN = 4   # max vertical name characters
-BLOCKS = " ▁▂▃▄▅▆▇█"
+BAR_WIDTH = 20
 
 
 def _color_for(percent: float) -> str:
@@ -143,50 +139,26 @@ class DiskQuotaWidget(Widget):
             self._render_expanded(content)
 
     def _render_expanded(self, content: Static) -> None:
-        """Render vertical bars with vertically stacked mount names."""
+        """Render horizontal bars, one line per filesystem."""
         if not self._quotas:
             content.update("[#565f89]No quota data[/]")
             return
 
-        pad = " " * (COL_WIDTH - BAR_WIDTH)
-        sep = " "
-        rows: list[str] = []
-
-        # Bar rows (top to bottom)
-        for row in range(BAR_HEIGHT, 0, -1):
-            parts = []
-            for q in self._quotas:
-                pct = q.usage_percent
-                color = _color_for(pct)
-                filled_rows = pct / 100 * BAR_HEIGHT
-                if filled_rows >= row:
-                    block = "█" * BAR_WIDTH
-                elif filled_rows >= row - 1:
-                    frac = filled_rows - (row - 1)
-                    idx = int(frac * (len(BLOCKS) - 1))
-                    block = BLOCKS[idx] * BAR_WIDTH
-                else:
-                    block = "░" * BAR_WIDTH
-                parts.append(f"[{color}]{block}[/]{pad}")
-            rows.append(sep.join(parts))
-
-        # Percent row
-        pct_parts = []
+        lines = []
         for q in self._quotas:
-            color = _color_for(q.usage_percent)
-            pct = f"{q.usage_percent:.0f}%"
-            pct_parts.append(f"[{color}]{pct:<{COL_WIDTH}}[/]")
-        rows.append(sep.join(pct_parts))
+            name = _short_fs(q.filesystem)
+            pct = q.usage_percent
+            color = _color_for(pct)
 
-        # Vertical name rows (one char per row)
-        names = [_short_fs(q.filesystem)[:NAME_LEN].ljust(NAME_LEN) for q in self._quotas]
-        for i in range(NAME_LEN):
-            char_parts = []
-            for name in names:
-                char_parts.append(f"[#565f89]{name[i]}[/]{pad}")
-            rows.append(sep.join(char_parts))
+            filled = int(pct / 100 * BAR_WIDTH)
+            empty = BAR_WIDTH - filled
+            bar = f"[{color}]{'█' * filled}{'░' * empty}[/]"
 
-        content.update("\n".join(rows))
+            lines.append(
+                f"[#c0caf5]{name:<8}[/] {bar} [{color}]{pct:5.1f}%[/]  "
+                f"[#565f89]{q.used} / {q.quota}[/]"
+            )
+        content.update("\n".join(lines))
 
     def _render_collapsed(self, content: Static) -> None:
         """Render compact one-line summary."""
