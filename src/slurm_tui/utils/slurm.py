@@ -238,6 +238,22 @@ class SlurmClient:
             return []
         return [q.strip() for q in stdout.strip().split("\n") if q.strip()]
 
+    def update_job_partition(self, job_id: str, partition: str) -> tuple[bool, str]:
+        """Update the partition of a pending job."""
+        cmd = ["scontrol", "update", f"job={job_id}", f"partition={partition}"]
+        stdout, stderr, rc = self._run_command(cmd)
+        if rc == 0:
+            return True, f"Job {job_id} partition updated to {partition}"
+        return False, stderr.strip() or "Failed to update partition"
+
+    def get_available_partitions(self) -> list[str]:
+        """Get list of available partition names."""
+        cmd = ["sinfo", "-h", "-o", "%P"]
+        stdout, stderr, rc = self._run_command(cmd)
+        if rc != 0:
+            return []
+        return [p.strip().rstrip("*") for p in stdout.strip().split("\n") if p.strip()]
+
     def is_available(self) -> bool:
         """Check if SLURM commands are available."""
         _, _, rc = self._run_command(["squeue", "--version"])

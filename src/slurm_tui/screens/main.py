@@ -104,6 +104,7 @@ class MainScreen(Screen):
         ("B", "add_bookmark", "Add Bookmark"),
         ("e", "editor", "Editor"),
         ("p", "change_qos", "QOS"),
+        ("P", "change_partition", "Partition"),
         ("f", "toggle_quota_visible", "Quota"),
         ("F", "toggle_quota_collapse", "Quota ↕"),
         ("t", "toggle_console", "Terminal"),
@@ -160,7 +161,7 @@ class MainScreen(Screen):
             "[#7aa2f7]r[/]efresh  [#7aa2f7]a[/]ttach  [#7aa2f7]c[/]ancel  [#7aa2f7]l[/]ogs  "
             "[#7aa2f7]n[/]ew  [#7aa2f7]i[/]nteractive  [#7aa2f7]u[/]sers  "
             "[#7aa2f7]s[/]ort  [#7aa2f7]d[/]ir  [#7aa2f7]o[/]verview  [#7aa2f7]h[/]ours  "
-            "[#7aa2f7]g[/]pu  [#7aa2f7]v[/]GPU  [#7aa2f7]p[/]qos  [#7aa2f7]f[/]quota  [#7aa2f7]b[/]ookmarks  "
+            "[#7aa2f7]g[/]pu  [#7aa2f7]v[/]GPU  [#7aa2f7]p[/]qos  [#7aa2f7]P[/]art  [#7aa2f7]f[/]quota  [#7aa2f7]b[/]ookmarks  "
             "[#7aa2f7]e[/]ditor  [#7aa2f7]t[/]erminal  [#7aa2f7]q[/]uit",
             classes="keybindings",
         )
@@ -334,6 +335,23 @@ class MainScreen(Screen):
 
         from .job_submit import QosUpdateScreen
         self.app.push_screen(QosUpdateScreen(pending, self.slurm_client))
+
+    def action_change_partition(self) -> None:
+        """Change partition of pending job(s)."""
+        job_table = self.query_one(JobTableWidget)
+        jobs = job_table.get_selected_jobs()
+
+        if not jobs:
+            self.notify("No job selected", severity="warning")
+            return
+
+        pending = [j for j in jobs if j.state == "PD"]
+        if not pending:
+            self.notify("No pending jobs in selection", severity="warning")
+            return
+
+        from .job_submit import PartitionUpdateScreen
+        self.app.push_screen(PartitionUpdateScreen(pending, self.slurm_client))
 
     def action_toggle_quota_visible(self) -> None:
         """Toggle disk quota widget visibility."""
