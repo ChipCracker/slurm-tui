@@ -426,21 +426,19 @@ class JobDetailsWidget(Widget):
         self.save_script()
 
     def action_copy_logs(self) -> None:
-        """Copy complete stderr log file to clipboard."""
-        if not self._stderr_log_tail or not self._stderr_log_tail.path:
-            self.notify("No log file available", severity="warning")
+        """Copy stderr logs to clipboard."""
+        if not self._logs_area or not self._logs_area.text:
+            self.notify("No log content to copy", severity="warning")
+            return
+
+        text = self._logs_area.text
+        if text.startswith("No "):
+            self.notify("No log content to copy", severity="warning")
             return
 
         try:
-            with open(self._stderr_log_tail.path, "r", errors="replace") as f:
-                text = f.read()
-
-            if not text.strip():
-                self.notify("Log file is empty", severity="warning")
-                return
-
             self.app.copy_to_clipboard(text)
-            self.notify("Copied complete log to clipboard")
+            self.notify("Copied logs to clipboard")
         except Exception as e:
             self.notify(f"Copy failed: {e}", severity="error")
 
