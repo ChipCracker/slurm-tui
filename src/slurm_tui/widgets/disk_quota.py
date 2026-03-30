@@ -100,7 +100,10 @@ class DiskQuotaWidget(Widget):
     def compose(self) -> ComposeResult:
         with Horizontal(classes="section-header"):
             yield Static("Disk Quota", classes="section-title")
-            yield Static(f"{int(self.refresh_interval)}s", classes="section-info")
+            yield Static(
+                f"[#414868]F[/] to collapse  {int(self.refresh_interval)}s",
+                classes="section-info",
+            )
 
         yield Static("─" * 20, classes="separator")
         yield Static("[#565f89]Loading quota data...[/]", classes="quota-content")
