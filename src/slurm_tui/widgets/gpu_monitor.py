@@ -124,8 +124,8 @@ class GPUMonitorWidget(Widget):
         yield Static("No partition data available", classes="partition-content")
 
     def on_mount(self) -> None:
-        """Start auto-refresh timer on mount (2s offset to stagger with other widgets)."""
-        self.set_timer(2.0, self._start_refresh)
+        """Start auto-refresh timer on mount (1s offset to let job table load first)."""
+        self.set_timer(1.0, self._start_refresh)
 
     def _start_refresh(self) -> None:
         self.refresh_data()

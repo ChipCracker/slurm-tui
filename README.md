@@ -50,8 +50,8 @@ A modern terminal user interface for SLURM cluster management with real-time GPU
 │  12345  training-exp       ● R   p2     │ Epoch 12/100  loss=0.234                 │
 │  12346  eval-model         ◐ PD  p1     │ Epoch 13/100  loss=0.221                 │
 ├────────────────────────────────────────────────────────────────────────────────────┤
-│ [r]efresh [a]ttach [c]ancel [l]ogs [n]ew [i]nteractive [u]sers [s]ort [d]ir       │
-│ [o]verview [g]pu [v]GPU [b]ookmarks [e]ditor [t]erminal [q]uit                    │
+│ [y]← [x/s]ort [c]→ [a]ttach [d]ir [C]ancel [r]efresh [n]ew [i]nteractive [u]sers   │
+│ [o]verview [g]pu [v]GPU [w]stderr/out [l]ogs [b]ookmarks [e]ditor [t]erminal [q]uit│
 └────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -98,11 +98,13 @@ python -m slurm_tui
 | `r`   | Refresh all data                     |
 | `n`   | New job (submit script)              |
 | `i`   | Start interactive session            |
+| `y` / `←` | Focus left panel                 |
+| `x` / `s` | Cycle sort column               |
+| `c` / `→` | Focus right panel                |
 | `a`   | Attach to running job                |
-| `c`   | Cancel selected job                  |
-| `u`   | Toggle all users / my jobs           |
-| `s`   | Cycle sort column                    |
 | `d`   | Toggle sort direction (asc/desc)     |
+| `C`   | Cancel selected job                  |
+| `u`   | Toggle all users / my jobs           |
 | `o`   | Overview: toggle running jobs        |
 | `g`   | GPU partition details (cycle)        |
 | `v`   | Live GPU stats for running job       |
@@ -113,13 +115,15 @@ python -m slurm_tui
 | `t`   | Terminal (open shell)                |
 | `?`   | Show help                            |
 
+`←` and `→` switch panels while the script/log view is read-only. During script editing, the arrow keys keep their normal cursor behavior.
+
 ### Job Details Panel
 
 | Key      | Action              |
 |----------|---------------------|
 | `Ctrl+S` | Save script         |
 | `b`      | Bookmark script     |
-| `y`      | Copy logs           |
+| `Y`      | Copy logs           |
 
 ### Log Viewer
 
