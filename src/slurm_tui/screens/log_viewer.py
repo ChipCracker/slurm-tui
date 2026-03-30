@@ -273,23 +273,30 @@ class LogViewerScreen(ModalScreen):
         self._follow_tick()
 
     def action_copy_logs(self) -> None:
-        """Copy the active tab's log content to clipboard."""
+        """Copy the complete log file content to clipboard."""
         try:
             tabbed = self.query_one(TabbedContent)
             active_tab = tabbed.active
             if active_tab == "stderr-tab":
-                text = self.query_one("#stderr-log", TextArea).text
+                path = self.stderr_path
                 label = "stderr"
             else:
-                text = self.query_one("#stdout-log", TextArea).text
+                path = self.stdout_path
                 label = "stdout"
 
-            if not text or text.startswith("No "):
-                self.notify("No log content to copy", severity="warning")
+            if not path:
+                self.notify("No log file available", severity="warning")
+                return
+
+            with open(path, "r", errors="replace") as f:
+                text = f.read()
+
+            if not text.strip():
+                self.notify("Log file is empty", severity="warning")
                 return
 
             self.app.copy_to_clipboard(text)
-            self.notify(f"Copied {label} logs to clipboard")
+            self.notify(f"Copied complete {label} log to clipboard")
         except Exception as e:
             self.notify(f"Copy failed: {e}", severity="error")
 
