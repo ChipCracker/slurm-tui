@@ -12,7 +12,6 @@ from textual.worker import get_current_worker
 
 from ..utils.slurm import SlurmClient, Job
 from ..utils.log_reader import LogTail, read_log_incremental
-from ..utils.clipboard import copy_to_clipboard
 
 
 class LogViewerScreen(ModalScreen):
@@ -289,7 +288,7 @@ class LogViewerScreen(ModalScreen):
                 self.notify("No log content to copy", severity="warning")
                 return
 
-            copy_to_clipboard(text)
+            self.app.copy_to_clipboard(text)
             self.notify(f"Copied {label} logs to clipboard")
         except Exception as e:
             self.notify(f"Copy failed: {e}", severity="error")

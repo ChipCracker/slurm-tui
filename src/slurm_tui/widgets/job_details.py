@@ -16,7 +16,6 @@ from ..utils.slurm import SlurmClient, Job
 from ..utils.gpu import GPUMonitor, PartitionGPU, NodeGPU, GPUStats
 from ..utils.bookmarks import BookmarkManager
 from ..utils.log_reader import LogTail, read_log_incremental
-from ..utils.clipboard import copy_to_clipboard
 
 
 def _color_for(percent: float) -> str:
@@ -438,7 +437,7 @@ class JobDetailsWidget(Widget):
             return
 
         try:
-            copy_to_clipboard(text)
+            self.app.copy_to_clipboard(text)
             self.notify("Copied logs to clipboard")
         except Exception as e:
             self.notify(f"Copy failed: {e}", severity="error")
