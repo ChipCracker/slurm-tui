@@ -30,7 +30,11 @@ def make_gradient_bar(percent: float, non_preempt_percent: float = 0.0, width: i
     preempt_chars = total_filled - non_preempt_chars
     empty = width - total_filled
 
-    bar = f"[{color}]" + "█" * non_preempt_chars + "▒" * preempt_chars + "[/]" + "░" * empty
+    bar = (
+        f"[{color}]" + "█" * non_preempt_chars + "[/]"
+        + f"[#565f89]" + "█" * preempt_chars + "[/]"
+        + "░" * empty
+    )
     return bar
 
 
