@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import os
-import subprocess
-
 from textual import work
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
@@ -15,6 +12,7 @@ from textual.worker import get_current_worker
 
 from ..utils.slurm import SlurmClient, Job
 from ..utils.log_reader import LogTail, read_log_incremental
+from ..utils.clipboard import copy_to_clipboard
 
 
 class LogViewerScreen(ModalScreen):
@@ -291,11 +289,7 @@ class LogViewerScreen(ModalScreen):
                 self.notify("No log content to copy", severity="warning")
                 return
 
-            proc = subprocess.run(
-                ["pbcopy"] if os.uname().sysname == "Darwin" else ["xclip", "-selection", "clipboard"],
-                input=text.encode(),
-                check=True,
-            )
+            copy_to_clipboard(text)
             self.notify(f"Copied {label} logs to clipboard")
         except Exception as e:
             self.notify(f"Copy failed: {e}", severity="error")

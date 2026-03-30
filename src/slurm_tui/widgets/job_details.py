@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import subprocess
 
 from textual import work
 from textual.app import ComposeResult
@@ -17,6 +16,7 @@ from ..utils.slurm import SlurmClient, Job
 from ..utils.gpu import GPUMonitor, PartitionGPU, NodeGPU, GPUStats
 from ..utils.bookmarks import BookmarkManager
 from ..utils.log_reader import LogTail, read_log_incremental
+from ..utils.clipboard import copy_to_clipboard
 
 
 def _color_for(percent: float) -> str:
@@ -438,11 +438,7 @@ class JobDetailsWidget(Widget):
             return
 
         try:
-            subprocess.run(
-                ["pbcopy"] if os.uname().sysname == "Darwin" else ["xclip", "-selection", "clipboard"],
-                input=text.encode(),
-                check=True,
-            )
+            copy_to_clipboard(text)
             self.notify("Copied logs to clipboard")
         except Exception as e:
             self.notify(f"Copy failed: {e}", severity="error")
