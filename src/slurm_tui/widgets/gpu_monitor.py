@@ -17,22 +17,15 @@ BLOCKS = " ▁▂▃▄▅▆▇█"
 
 
 def make_gradient_bar(percent: float, non_preempt_percent: float = 0.0, width: int = 25) -> str:
-    """Create a two-tone progress bar: solid for non-preemptible, hatched for preemptible."""
-    if percent < 50:
-        color = "#9ece6a"
-    elif percent < 80:
-        color = "#e0af68"
-    else:
-        color = "#f7768e"
-
+    """Create a two-tone progress bar: red for non-preemptible, yellow for preemptible."""
     non_preempt_chars = int(non_preempt_percent / 100 * width + 0.5)
     total_filled = int(percent / 100 * width + 0.5)
     preempt_chars = total_filled - non_preempt_chars
     empty = width - total_filled
 
     bar = (
-        f"[{color}]" + "█" * non_preempt_chars + "[/]"
-        + f"[#565f89]" + "█" * preempt_chars + "[/]"
+        f"[#f7768e]" + "█" * non_preempt_chars + "[/]"
+        + f"[#e0af68]" + "▒" * preempt_chars + "[/]"
         + "░" * empty
     )
     return bar
@@ -41,20 +34,16 @@ def make_gradient_bar(percent: float, non_preempt_percent: float = 0.0, width: i
 def _render_partition_row(partition: PartitionGPU) -> str:
     """Render a partition row as a single Rich markup string."""
     percent = partition.usage_percent
-    if percent < 50:
-        color = "#9ece6a"
-    elif percent < 80:
-        color = "#e0af68"
-    else:
-        color = "#f7768e"
-
     bar = make_gradient_bar(percent, partition.non_preemptible_percent)
     preempt = partition.preemptible
     return (
         f"[#c0caf5]{partition.partition:<4}[/]"
-        f"[#565f89]{partition.non_preemptible:1}+{preempt:1}/{partition.total:2}[/]  "
+        f"[#f7768e]{partition.non_preemptible:1}[/]"
+        f"[#565f89]+[/]"
+        f"[#e0af68]{preempt:1}[/]"
+        f"[#565f89]/{partition.total:2}[/]  "
         f"{bar}  "
-        f"[{color}]{percent:5.1f}%[/]"
+        f"[#c0caf5]{percent:5.1f}%[/]"
     )
 
 
