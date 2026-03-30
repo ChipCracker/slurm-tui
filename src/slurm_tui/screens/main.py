@@ -5,18 +5,18 @@ right panel (job details / script / logs / GPU stats).
 
 Navigation:
     a      = attach to the selected running job
-    s / x  = cycle sort column in the job table
-    d      = toggle sort direction (asc/desc)
-    y / ←  = focus left panel (DataTable)
-    c / →  = focus right panel (logs TextArea)
+    s / x  = change the current sort order
+    d      = toggle sort direction (legacy alias)
+    y / ←  = move to the previous sort column
+    c / →  = move to the next sort column
     C      = cancel the selected job
     ↑ / ↓  = row navigation (DataTable) or cursor (TextArea)
 
 Design decisions:
     - Arrow left/right are intercepted at Screen level via on_key() so they
-      work regardless of which widget has focus. When a TextArea is editable
-      we skip the intercept so the user can still move their cursor inside
-      the script editor.
+      move through sort columns regardless of which widget has focus. When a
+      TextArea is editable we skip the intercept so the user can still move
+      their cursor inside the script editor.
     - All data fetching happens in @work(thread=True) workers so the event
       loop is never blocked by subprocess calls.
     - Widget updates use Static.update() / update_cell_at() (imperative)
@@ -43,9 +43,9 @@ class MainScreen(Screen):
     """Main dashboard screen.
 
     Keybinding philosophy:
-        Restore the classic a/s/d workflow (attach, sort, sort direction),
-        and move the panel-navigation cluster to y/x/c for QWERTZ keyboards.
-        Arrow left/right remain aliases for panel switching.
+        Keep x/s as the primary sort keys, use y/c for previous/next sort
+        column on QWERTZ keyboards, and keep arrow left/right as aliases for
+        moving across sortable columns.
     """
 
     DEFAULT_CSS = """
@@ -127,8 +127,8 @@ class MainScreen(Screen):
     # ── Keybindings ───────────────────────────────────────────────
     #
     # Letter keys bubble up to the Screen reliably because DataTable doesn't
-    # bind them. We keep legacy a/s/d actions and use y/x/c for the newer
-    # left / sort / right navigation cluster.
+    # bind them. We use y/c and left/right to move between sortable columns,
+    # while x/s control sorting on the current column.
     # Arrow left/right are handled in on_key() since DataTable binds
     # them for cursor_left/cursor_right (which we don't need in row mode).
     BINDINGS = [
@@ -141,8 +141,8 @@ class MainScreen(Screen):
         ("u", "toggle_users", "Toggle Users"),
         ("s,x", "sort", "Sort"),
         ("d", "sort_direction", "Sort ↕"),
-        ("y", "focus_left", "← Left"),
-        ("c", "focus_right", "→ Right"),
+        ("y", "sort_column_left", "← Column"),
+        ("c", "sort_column_right", "→ Column"),
         ("o", "toggle_running", "Overview"),
         ("h", "toggle_hours", "GPU Hours"),
         ("g", "gpu_details", "GPU Details"),
@@ -198,7 +198,7 @@ class MainScreen(Screen):
 
         # Footer showing available keybindings
         yield Static(
-            "[#7aa2f7]y[/]←  [#7aa2f7]x/s[/]ort  [#7aa2f7]c[/]→  "
+            "[#7aa2f7]y[/]/← prev  [#7aa2f7]x/s[/]ort  [#7aa2f7]c[/]/→ next  "
             "[#7aa2f7]a[/]ttach  [#7aa2f7]d[/]ir  [#7aa2f7]C[/]ancel  "
             "[#7aa2f7]r[/]efresh  "
             "[#7aa2f7]n[/]ew  [#7aa2f7]i[/]nteractive  [#7aa2f7]u[/]sers  "
@@ -212,23 +212,23 @@ class MainScreen(Screen):
     # ── Arrow key handling ───────────────────────────────────────
     #
     # DataTable binds left/right for cursor_left/cursor_right, but in
-    # row cursor mode we don't need column navigation.  We override
-    # on_key() to repurpose them for panel switching.
+    # row cursor mode we don't need in-cell column navigation. We override
+    # on_key() to repurpose them for sort-column navigation.
     # Skip only when an editable TextArea is focused so the user can still
     # move the cursor while editing the script.
 
     def on_key(self, event) -> None:
-        """Repurpose arrow left/right for panel navigation."""
+        """Repurpose arrow left/right for sort-column navigation."""
         from textual.widgets import TextArea
         focused = self.app.focused
         if isinstance(focused, TextArea) and not focused.read_only:
             return
         if event.key == "left":
-            self.action_focus_left()
+            self.action_sort_column_left()
             event.prevent_default()
             event.stop()
         elif event.key == "right":
-            self.action_focus_right()
+            self.action_sort_column_right()
             event.prevent_default()
             event.stop()
 
@@ -281,39 +281,30 @@ class MainScreen(Screen):
 
         self.notify("Data refreshed")
 
-    def action_focus_left(self) -> None:
-        """Move focus to the left panel (job table's DataTable)."""
-        try:
-            from textual.widgets import DataTable
-            self.query_one(DataTable).focus()
-            self.notify("← focus left")
-        except Exception as e:
-            self.notify(f"focus_left error: {e}", severity="error")
-
-    def action_focus_right(self) -> None:
-        """Move focus to the right panel (logs TextArea).
-
-        Prefers the logs area (2nd TextArea) so the user can scroll logs
-        immediately.  Falls back to the script area if no logs are shown.
-        """
-        try:
-            from textual.widgets import TextArea
-            details = self.query_one(JobDetailsWidget)
-            text_areas = list(details.query(TextArea))
-            if len(text_areas) > 1:
-                text_areas[1].focus()
-            elif text_areas:
-                text_areas[0].focus()
-            self.notify("→ focus right")
-        except Exception as e:
-            self.notify(f"focus_right error: {e}", severity="error")
-
-    def action_sort(self) -> None:
-        """Cycle sort column in the job table (ID → Name → State → …)."""
+    def action_sort_column_left(self) -> None:
+        """Move to the previous sortable column."""
         try:
             job_table = self.query_one(JobTableWidget)
-            job_table.cycle_sort()
-            self.notify("sort cycled")
+            job_table.move_sort_column(-1)
+            self.notify("← previous sort column")
+        except Exception as e:
+            self.notify(f"sort_column_left error: {e}", severity="error")
+
+    def action_sort_column_right(self) -> None:
+        """Move to the next sortable column."""
+        try:
+            job_table = self.query_one(JobTableWidget)
+            job_table.move_sort_column(1)
+            self.notify("→ next sort column")
+        except Exception as e:
+            self.notify(f"sort_column_right error: {e}", severity="error")
+
+    def action_sort(self) -> None:
+        """Change sorting for the current column."""
+        try:
+            job_table = self.query_one(JobTableWidget)
+            job_table.toggle_sort_direction()
+            self.notify("sort updated")
         except Exception as e:
             self.notify(f"sort error: {e}", severity="error")
 
@@ -418,7 +409,7 @@ class MainScreen(Screen):
     def action_help(self) -> None:
         """Show keybinding cheatsheet as notification."""
         self.notify(
-            "y/c or ←/→=Panel  x/s=Sort  d=Dir  a=Attach  C=Cancel  "
+            "y/←=Prev Col  c/→=Next Col  x/s=Sort  d=Dir  a=Attach  C=Cancel  "
             "n=New  l=Logs  b=Bookmarks  e=Editor  w=stderr/stdout  q=Quit",
             timeout=5,
         )

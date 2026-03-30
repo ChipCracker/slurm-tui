@@ -98,9 +98,9 @@ python -m slurm_tui
 | `r`   | Refresh all data                     |
 | `n`   | New job (submit script)              |
 | `i`   | Start interactive session            |
-| `y` / `←` | Focus left panel                 |
-| `x` / `s` | Cycle sort column               |
-| `c` / `→` | Focus right panel                |
+| `y` / `←` | Previous sort column             |
+| `x` / `s` | Toggle sort direction            |
+| `c` / `→` | Next sort column                 |
 | `a`   | Attach to running job                |
 | `d`   | Toggle sort direction (asc/desc)     |
 | `C`   | Cancel selected job                  |
@@ -115,7 +115,7 @@ python -m slurm_tui
 | `t`   | Terminal (open shell)                |
 | `?`   | Show help                            |
 
-`←` and `→` switch panels while the script/log view is read-only. During script editing, the arrow keys keep their normal cursor behavior.
+`←` and `→` move across sort columns while the script/log view is read-only. During script editing, the arrow keys keep their normal cursor behavior.
 
 ### Job Details Panel
 
@@ -163,7 +163,8 @@ slurm-tui/
 │   ├── check_slurm_gpu_hours.sh
 │   ├── create_slurm_job.sh
 │   ├── interactive_slurm_job.sh
-│   └── show_alloc_gpus.sh
+│   ├── show_alloc_gpus.sh
+│   └── sync_to_kiz_rsync.sh
 └── src/slurm_tui/
     ├── app.py                      # Main application (Tokyo Night theme)
     ├── __main__.py                 # CLI entry point

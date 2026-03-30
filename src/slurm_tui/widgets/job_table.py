@@ -354,25 +354,33 @@ class JobTableWidget(Widget):
         return 0
 
     def cycle_sort(self) -> None:
-        """Cycle to the next sort column.  Wraps back to 'no sort' after Time.
+        """Advance to the next sort column.
 
-        Sort direction toggles when pressing sort on the already-active column.
+        Kept as a compatibility helper for older call sites.
         """
+        self.move_sort_column(1)
+
+    def move_sort_column(self, step: int) -> None:
+        """Move the active sort column left/right, wrapping around."""
+        if not COL_POSITIONS:
+            return
+
+        if self._sort_col_index is None:
+            self._sort_col_index = 0 if step >= 0 else len(COL_POSITIONS) - 1
+            self._sort_reverse = False
+        else:
+            self._sort_col_index = (self._sort_col_index + step) % len(COL_POSITIONS)
+
+        self._update_table()
+
+    def toggle_sort_direction(self) -> None:
+        """Toggle ascending ↔ descending for the active sort column."""
         if self._sort_col_index is None:
             self._sort_col_index = 0
             self._sort_reverse = False
         else:
-            self._sort_col_index += 1
-            if self._sort_col_index >= len(COL_POSITIONS):
-                self._sort_col_index = None
-                self._sort_reverse = False
-        self._update_table()
-
-    def toggle_sort_direction(self) -> None:
-        """Toggle ascending ↔ descending for the current sort column."""
-        if self._sort_col_index is not None:
             self._sort_reverse = not self._sort_reverse
-            self._update_table()
+        self._update_table()
 
     # ── Row selection ─────────────────────────────────────────────
 
