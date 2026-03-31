@@ -305,7 +305,7 @@ class JobDetailsWidget(Widget):
         if worker.is_cancelled:
             return
 
-        # Read script content
+        # Read script content — try file first, fall back to scontrol
         script_content = "Script not available"
         if script_path and os.path.exists(script_path):
             try:
@@ -313,6 +313,15 @@ class JobDetailsWidget(Widget):
                     script_content = f.read()
             except Exception as e:
                 script_content = f"Error reading script: {e}"
+
+        if script_content == "Script not available":
+            # Fallback: retrieve script from Slurm controller directly
+            # Works for workflow-manager jobs, temp scripts, array jobs
+            batch_script = self.slurm_client.get_batch_script(job.job_id)
+            if batch_script:
+                script_content = batch_script
+                if not script_path:
+                    script_path = "(retrieved from Slurm controller)"
 
         if worker.is_cancelled:
             return

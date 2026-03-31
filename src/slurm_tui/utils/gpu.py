@@ -315,8 +315,11 @@ class GPUMonitor:
 
     def get_job_gpu_stats(self, job_id: str) -> list[GPUStats]:
         """Get live GPU stats for a running job via srun --overlap."""
+        # srun --jobid only accepts numeric base IDs, strip array suffixes
+        # e.g. '128430_0' -> '128430', '128430_[0-4]' -> '128430'
+        base_id = job_id.split("_")[0] if "_" in job_id else job_id
         cmd = [
-            "srun", "--overlap", f"--jobid={job_id}",
+            "srun", "--overlap", f"--jobid={base_id}",
             "nvidia-smi",
             "--query-gpu=index,name,utilization.gpu,memory.used,memory.total,"
             "temperature.gpu,power.draw,power.limit",
