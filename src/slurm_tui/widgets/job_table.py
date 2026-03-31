@@ -221,13 +221,14 @@ class JobTableWidget(Widget):
         """Apply fetched data on the main thread (safe for UI updates)."""
         try:
             table = self.query_one(DataTable)
-            # Remember which job was selected so we can restore cursor after update
+            # Remember cursor + scroll so we can restore both after update
             old_cursor_row = table.cursor_row
+            old_scroll_y = table.scroll_y
             old_job_id = None
             if old_cursor_row is not None and old_cursor_row < len(self._display_jobs):
                 old_job_id = self._display_jobs[old_cursor_row].job_id
             self.jobs = jobs
-            self._update_table(old_job_id)
+            self._update_table(old_job_id, old_scroll_y)
         except Exception:
             pass
 
@@ -258,13 +259,14 @@ class JobTableWidget(Widget):
             time_display,
         )
 
-    def _update_table(self, old_job_id: str | None = None) -> None:
+    def _update_table(self, old_job_id: str | None = None, old_scroll_y: float | None = None) -> None:
         """Differentially update the DataTable — no clear/rebuild.
 
         1. Sort the job list if a sort column is active.
         2. Update existing rows in-place via update_cell_at().
         3. Add new rows or remove excess rows as needed.
         4. Restore the cursor to the previously selected job.
+        5. Restore scroll position so the viewport doesn't jump.
         """
         table = self.query_one(DataTable)
 
@@ -320,6 +322,11 @@ class JobTableWidget(Widget):
                 if job.job_id == old_job_id:
                     table.move_cursor(row=i)
                     break
+
+        # Restore scroll position — move_cursor scrolls to make the cursor
+        # visible, but the user may have scrolled elsewhere with the mouse.
+        if old_scroll_y is not None:
+            table.scroll_to(y=old_scroll_y, animate=False)
 
     # ── Sort ──────────────────────────────────────────────────────
 

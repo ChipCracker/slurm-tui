@@ -182,6 +182,7 @@ class JobDetailsWidget(Widget):
         self._is_own_job: bool = False
         self._showing_partition: bool = False
         self._showing_gpu_stats: bool = False
+        self._job_widgets_mounted: bool = False  # True once reusable widgets exist
 
         # GPU stats state (live refresh via set_interval)
         self._gpu_stats_timer = None
@@ -192,6 +193,8 @@ class JobDetailsWidget(Widget):
         # Script editor state
         self._logs_area: TextArea | None = None
         self._script_area: TextArea | None = None
+        self._script_header: Static | None = None
+        self._script_path_label: Static | None = None
         self._script_path: str | None = None
         self._original_script: str = ""
         self._script_modified: bool = False
@@ -218,6 +221,7 @@ class JobDetailsWidget(Widget):
     def _clear_content(self) -> None:
         """Remove all children from the content container."""
         self.query_one("#content-container", Vertical).remove_children()
+        self._job_widgets_mounted = False
 
     def _show_placeholder(self, message: str, is_warning: bool = False) -> None:
         """Show a centered placeholder message."""
@@ -264,7 +268,10 @@ class JobDetailsWidget(Widget):
             return
 
         self._update_title(f"Job {job.job_id} - {job.name}")
-        self._show_loading()
+        # Don't tear down widgets just to show "Loading..." — the background
+        # worker will update them in-place once data is ready.
+        if not self._job_widgets_mounted:
+            self._show_loading()
         self._load_job_content()
 
     @work(thread=True, exclusive=True)
@@ -365,7 +372,11 @@ class JobDetailsWidget(Widget):
         stderr_tail: LogTail | None,
         stdout_tail: LogTail | None,
     ) -> None:
-        """Mount the job details UI (runs on main thread)."""
+        """Update the job details UI (runs on main thread).
+
+        Mounts widgets only once, then reuses them via load_text()/update().
+        This avoids expensive TextArea teardown/rebuild on every cursor move.
+        """
         self._is_own_job = True
         self._script_path = script_path
         self._original_script = script_content
@@ -376,38 +387,52 @@ class JobDetailsWidget(Widget):
         self._stdout_content = stdout_content
         self._showing_stderr = True
 
-        self._clear_content()
-        container = self.query_one("#content-container", Vertical)
+        if not self._job_widgets_mounted:
+            # First time — mount the reusable widget tree
+            self._clear_content()
+            container = self.query_one("#content-container", Vertical)
 
-        # Script section — read-only by default, Ctrl+E to enable editing
-        container.mount(Static("Script [read-only] [Ctrl+E to edit]", classes="script-header"))
-        container.mount(Static(f"{script_path or 'N/A'}", classes="script-path"))
-        container.mount(Static("─" * 40, classes="separator"))
+            script_header = Static("Script [read-only] [Ctrl+E to edit]", classes="script-header")
+            script_path_label = Static(f"{script_path or 'N/A'}", classes="script-path")
+            container.mount(script_header)
+            container.mount(script_path_label)
+            container.mount(Static("─" * 40, classes="separator"))
 
-        script_area = TextArea(
-            script_content,
-            language="bash",
-            read_only=True,
-            show_line_numbers=True,
-            classes="script-area",
-        )
-        container.mount(script_area)
-        self._script_area = script_area
+            script_area = TextArea(
+                script_content,
+                language="bash",
+                read_only=True,
+                show_line_numbers=True,
+                classes="script-area",
+            )
+            container.mount(script_area)
 
-        # Logs section — defaults to stderr, 'w' toggles to stdout
-        logs_label = Static("Logs (stderr) [w to toggle]", classes="section-label")
-        container.mount(logs_label)
-        self._logs_label = logs_label
-        container.mount(Static("─" * 40, classes="separator"))
+            logs_label = Static("Logs (stderr) [w to toggle]", classes="section-label")
+            container.mount(logs_label)
+            container.mount(Static("─" * 40, classes="separator"))
 
-        logs_area = TextArea(
-            stderr_content,
-            read_only=True,
-            show_line_numbers=True,
-            classes="logs-area",
-        )
-        container.mount(logs_area)
-        self._logs_area = logs_area
+            logs_area = TextArea(
+                stderr_content,
+                read_only=True,
+                show_line_numbers=True,
+                classes="logs-area",
+            )
+            container.mount(logs_area)
+
+            self._script_header = script_header
+            self._script_path_label = script_path_label
+            self._script_area = script_area
+            self._logs_label = logs_label
+            self._logs_area = logs_area
+            self._job_widgets_mounted = True
+        else:
+            # Reuse existing widgets — just swap content (no mount/unmount)
+            self._script_header.update("Script [read-only] [Ctrl+E to edit]")
+            self._script_path_label.update(f"{script_path or 'N/A'}")
+            self._script_area.load_text(script_content)
+            self._script_area.read_only = True
+            self._logs_label.update("Logs (stderr) [w to toggle]")
+            self._logs_area.load_text(stderr_content)
 
         # Auto-scroll logs to the end after the layout settles
         self.call_after_refresh(self._scroll_logs_to_end)
@@ -500,7 +525,9 @@ class JobDetailsWidget(Widget):
     def _update_modified_indicator(self) -> None:
         """Update the script header to reflect edit/modified state."""
         try:
-            header = self.query_one(".script-header", Static)
+            header = self._script_header
+            if not header:
+                return
             if self._script_modified:
                 header.update("Script [modified] [Ctrl+S to save]")
                 header.add_class("script-header-modified")
