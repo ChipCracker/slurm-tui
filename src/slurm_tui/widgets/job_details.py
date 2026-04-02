@@ -598,7 +598,7 @@ class JobDetailsWidget(Widget):
 
     @work(thread=True, exclusive=True, group="gpu_stats")
     def _refresh_gpu_stats(self) -> None:
-        """Fetch GPU stats in background thread."""
+        """Fetch GPU stats and memory stats in background thread."""
         worker = get_current_worker()
         job = self._gpu_stats_job
         monitor = self._gpu_monitor_ref
@@ -606,10 +606,11 @@ class JobDetailsWidget(Widget):
             return
 
         stats = monitor.get_job_gpu_stats(job.job_id)
+        mem_rss = monitor.get_job_memory_stats(job.job_id)
         if not worker.is_cancelled:
-            self.app.call_from_thread(self._apply_gpu_stats, stats)
+            self.app.call_from_thread(self._apply_gpu_stats, stats, mem_rss)
 
-    def _apply_gpu_stats(self, stats: list[GPUStats]) -> None:
+    def _apply_gpu_stats(self, stats: list[GPUStats], mem_rss: float | None = None) -> None:
         """Render GPU stats — update existing Static, no widget rebuild."""
         if not self._showing_gpu_stats:
             return
@@ -651,5 +652,40 @@ class JobDetailsWidget(Widget):
             lines.append(f"    Temp   [{_color_for(temp_pct)}]{s.temperature:.0f}°C[/]")
             lines.append("")
 
+        # RAM usage from sstat
+        if mem_rss is not None and self._gpu_stats_job:
+            alloc_mb = self._parse_job_memory(self._gpu_stats_job.memory)
+            if alloc_mb > 0:
+                ram_pct = min(mem_rss / alloc_mb * 100, 100)
+                ram_bar = _make_bar(ram_pct)
+                lines.append(
+                    f"  [#c0caf5]RAM[/]    {ram_bar}  [{_color_for(ram_pct)}]"
+                    f"{mem_rss / 1024:.1f} / {alloc_mb / 1024:.1f} GB[/]"
+                )
+            else:
+                lines.append(
+                    f"  [#c0caf5]RAM[/]    [#565f89]{mem_rss / 1024:.1f} GB used[/]"
+                )
+            lines.append("")
+
         lines.append("[#414868]Auto-refresh: 5s[/]")
         content.update("\n".join(lines))
+
+    @staticmethod
+    def _parse_job_memory(memory_str: str) -> float:
+        """Parse job memory string (e.g. '10G', '4096M', '100g') to MB."""
+        if not memory_str:
+            return 0.0
+        memory_str = memory_str.strip().upper()
+        try:
+            if memory_str.endswith("G"):
+                return float(memory_str[:-1]) * 1024
+            elif memory_str.endswith("M"):
+                return float(memory_str[:-1])
+            elif memory_str.endswith("K"):
+                return float(memory_str[:-1]) / 1024
+            elif memory_str.endswith("T"):
+                return float(memory_str[:-1]) * 1024 * 1024
+            return float(memory_str)
+        except ValueError:
+            return 0.0

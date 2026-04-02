@@ -368,6 +368,52 @@ class GPUMonitor:
                 continue
         return stats
 
+    def get_job_memory_stats(self, job_id: str) -> float | None:
+        """Get MaxRSS (in MB) for a running job via sstat.
+
+        Returns MaxRSS in MB, or None on failure.
+        """
+        for suffix in [".batch", ""]:
+            cmd = [
+                "sstat", "-j", f"{job_id}{suffix}",
+                "--format=MaxRSS", "-n", "-P",
+            ]
+            stdout, _, rc = self._run_command(cmd, timeout=10)
+            if rc != 0 or not stdout.strip():
+                continue
+
+            max_rss = 0.0
+            for line in stdout.strip().split("\n"):
+                val = line.strip()
+                if not val:
+                    continue
+                mb = self._parse_slurm_mem(val)
+                if mb > max_rss:
+                    max_rss = mb
+            if max_rss > 0:
+                return max_rss
+
+        return None
+
+    @staticmethod
+    def _parse_slurm_mem(value: str) -> float:
+        """Parse SLURM memory strings like '4096K', '2048M', '1G' to MB."""
+        value = value.strip()
+        if not value:
+            return 0.0
+        try:
+            if value.endswith("K"):
+                return float(value[:-1]) / 1024
+            elif value.endswith("M"):
+                return float(value[:-1])
+            elif value.endswith("G"):
+                return float(value[:-1]) * 1024
+            elif value.endswith("T"):
+                return float(value[:-1]) * 1024 * 1024
+            return float(value)
+        except ValueError:
+            return 0.0
+
     def is_available(self) -> bool:
         """Check if GPU monitoring commands are available."""
         _, _, rc = self._run_command(["squeue", "--version"])
