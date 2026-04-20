@@ -38,6 +38,19 @@ class Partition:
     avail_cpus: int
 
 
+def normalize_array_job_id(job_id: str) -> str:
+    """Normalize array job IDs for scontrol/srun compatibility.
+
+    Converts compact array notation like '128417_[0-4]' or '128417_[1,3,5]'
+    to the base job ID '128417', which scontrol can query.
+    Individual array task IDs like '128417_2' are left unchanged.
+    """
+    m = re.match(r"^(\d+)_\[.*\]$", job_id)
+    if m:
+        return m.group(1)
+    return job_id
+
+
 class SlurmClient:
     """Client for interacting with SLURM."""
 
@@ -170,23 +183,47 @@ class SlurmClient:
         return False, stderr or "Failed to submit job"
 
     def get_job_details(self, job_id: str) -> Optional[dict]:
-        """Get detailed information about a job."""
-        cmd = ["scontrol", "show", "job", job_id]
+        """Get detailed information about a job.
+
+        Handles array job IDs by normalizing compact notation (e.g. 128417_[0-4])
+        to the base job ID. For base IDs that return multiple array elements,
+        returns the first element's details.
+        """
+        normalized = normalize_array_job_id(job_id)
+        cmd = ["scontrol", "show", "job", normalized]
         stdout, stderr, rc = self._run_command(cmd)
         if rc != 0:
             return None
 
+        # scontrol may return multiple job records (one per array element)
+        # separated by blank lines. Parse the first record.
         details = {}
         for item in stdout.split():
             if "=" in item:
                 key, _, value = item.partition("=")
-                details[key] = value
+                if key not in details:
+                    details[key] = value
 
         return details
+
+    def get_batch_script(self, job_id: str) -> Optional[str]:
+        """Retrieve the batch script content directly from Slurm's controller.
+
+        Uses 'scontrol write batch_script <job_id> -' which outputs the script
+        to stdout. Works even when the original script file no longer exists
+        on the filesystem (e.g. workflow-manager jobs, temp scripts).
+        """
+        normalized = normalize_array_job_id(job_id)
+        cmd = ["scontrol", "write", "batch_script", normalized, "-"]
+        stdout, stderr, rc = self._run_command(cmd)
+        if rc == 0 and stdout.strip():
+            return stdout
+        return None
 
     def get_job_log_paths(self, job_id: str) -> tuple[Optional[str], Optional[str]]:
         """Get stdout and stderr log file paths for a job.
 
+        Handles array job IDs via get_job_details normalization.
         Returns (stdout_path, stderr_path) tuple.
         """
         details = self.get_job_details(job_id)

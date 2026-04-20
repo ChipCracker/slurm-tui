@@ -1,4 +1,27 @@
-"""Main Screen - Dashboard with all widgets."""
+"""Main Screen - Dashboard with all widgets.
+
+Two-column layout: left panel (GPU monitor, GPU hours, job table),
+right panel (job details / script / logs / GPU stats).
+
+Navigation:
+    a      = attach to the selected running job
+    s / x  = change the current sort order
+    d      = toggle sort direction (legacy alias)
+    y / ←  = move to the previous sort column
+    c / →  = move to the next sort column
+    C      = cancel the selected job
+    ↑ / ↓  = row navigation (DataTable) or cursor (TextArea)
+
+Design decisions:
+    - Arrow left/right are intercepted at Screen level via on_key() so they
+      move through sort columns regardless of which widget has focus. When a
+      TextArea is editable we skip the intercept so the user can still move
+      their cursor inside the script editor.
+    - All data fetching happens in @work(thread=True) workers so the event
+      loop is never blocked by subprocess calls.
+    - Widget updates use Static.update() / update_cell_at() (imperative)
+      instead of recompose() to avoid flicker and preserve scroll position.
+"""
 
 from __future__ import annotations
 
@@ -18,7 +41,13 @@ from ..utils.bookmarks import BookmarkManager
 
 
 class MainScreen(Screen):
-    """Main dashboard screen."""
+    """Main dashboard screen.
+
+    Keybinding philosophy:
+        Keep x/s as the primary sort keys, use y/c for previous/next sort
+        column on QWERTZ keyboards, and keep arrow left/right as aliases for
+        moving across sortable columns.
+    """
 
     DEFAULT_CSS = """
     MainScreen {
@@ -85,23 +114,34 @@ class MainScreen(Screen):
     }
     """
 
+    # ── Keybindings ───────────────────────────────────────────────
+    #
+    # Letter keys bubble up to the Screen reliably because DataTable doesn't
+    # bind them. We use y/c and left/right to move between sortable columns,
+    # while x/s control sorting on the current column.
+    # Arrow left/right are handled in on_key() since DataTable binds
+    # them for cursor_left/cursor_right (which we don't need in row mode).
     BINDINGS = [
         ("q", "quit", "Quit"),
         ("r", "refresh", "Refresh"),
         ("n", "new_job", "New Job"),
         ("i", "interactive", "Interactive"),
         ("a", "attach", "Attach"),
-        ("c", "cancel", "Cancel"),
+        ("C", "cancel", "Cancel"),
         ("u", "toggle_users", "Toggle Users"),
-        ("s", "sort", "Sort"),
+        ("s,x", "sort", "Sort"),
         ("d", "sort_direction", "Sort ↕"),
+        ("y", "sort_column_left", "← Column"),
+        ("c", "sort_column_right", "→ Column"),
         ("o", "toggle_running", "Overview"),
         ("h", "toggle_hours", "GPU Hours"),
         ("g", "gpu_details", "GPU Details"),
         ("v", "gpu_stats", "GPU Stats"),
+        ("w", "toggle_log_stream", "stderr/stdout"),
         ("l", "view_logs", "Logs"),
         ("b", "bookmarks", "Bookmarks"),
         ("B", "add_bookmark", "Add Bookmark"),
+        ("ctrl+e", "toggle_edit_script", "Edit Script"),
         ("e", "editor", "Editor"),
         ("p", "change_qos", "QOS"),
         ("P", "change_partition", "Partition"),
@@ -126,7 +166,7 @@ class MainScreen(Screen):
 
         # Main 2-column layout
         with Horizontal(id="main-content"):
-            # Left panel - GPU monitor, hours, quota, jobs
+            # Left panel — GPU monitor, GPU hours, quota, job table
             with Vertical(id="left-panel"):
                 with Container(id="top-panel"):
                     yield GPUMonitorWidget(
@@ -142,42 +182,68 @@ class MainScreen(Screen):
                         refresh_interval=60.0,
                     )
 
-                # Jobs table
                 with Container(id="bottom-panel"):
                     yield JobTableWidget(
                         slurm_client=self.slurm_client,
                         refresh_interval=10.0,
                     )
 
-            # Right panel - Job details
+            # Right panel — job details / script / logs
             yield JobDetailsWidget(
                 slurm_client=self.slurm_client,
                 bookmark_manager=self.bookmark_manager,
                 id="details-panel",
             )
 
-        # Custom keybindings footer
+        # Footer showing available keybindings
         yield Static(
-            "[#7aa2f7]r[/]efresh  [#7aa2f7]a[/]ttach  [#7aa2f7]c[/]ancel  [#7aa2f7]l[/]ogs  "
+            "[#7aa2f7]y[/]/← prev  [#7aa2f7]x/s[/]ort  [#7aa2f7]c[/]/→ next  "
+            "[#7aa2f7]a[/]ttach  [#7aa2f7]d[/]ir  [#7aa2f7]C[/]ancel  "
+            "[#7aa2f7]r[/]efresh  "
             "[#7aa2f7]n[/]ew  [#7aa2f7]i[/]nteractive  [#7aa2f7]u[/]sers  "
-            "[#7aa2f7]s[/]ort  [#7aa2f7]d[/]ir  [#7aa2f7]o[/]verview  [#7aa2f7]h[/]ours  "
-            "[#7aa2f7]g[/]pu  [#7aa2f7]v[/]GPU  [#7aa2f7]p[/]qos  [#7aa2f7]P[/]art  [#7aa2f7]f[/]quota  [#7aa2f7]b[/]ookmarks  "
+            "[#7aa2f7]o[/]verview  [#7aa2f7]h[/]ours  "
+            "[#7aa2f7]g[/]pu  [#7aa2f7]v[/]GPU  [#7aa2f7]w[/]stderr/out  "
+            "[#7aa2f7]p[/]qos  [#7aa2f7]P[/]art  [#7aa2f7]f[/]quota  "
+            "[#7aa2f7]l[/]ogs  [#7aa2f7]b[/]ookmarks  "
             "[#7aa2f7]e[/]ditor  [#7aa2f7]t[/]erminal  [#7aa2f7]q[/]uit",
             classes="keybindings",
         )
 
+    # ── Arrow key handling ───────────────────────────────────────
+    #
+    # DataTable binds left/right for cursor_left/cursor_right, but in
+    # row cursor mode we don't need in-cell column navigation. We override
+    # on_key() to repurpose them for sort-column navigation.
+    # Skip only when an editable TextArea is focused so the user can still
+    # move the cursor while editing the script.
+
+    def on_key(self, event) -> None:
+        """Repurpose arrow left/right for sort-column navigation."""
+        from textual.widgets import TextArea
+        focused = self.app.focused
+        if isinstance(focused, TextArea) and not focused.read_only:
+            return
+        if event.key == "left":
+            self.action_sort_column_left()
+            event.prevent_default()
+            event.stop()
+        elif event.key == "right":
+            self.action_sort_column_right()
+            event.prevent_default()
+            event.stop()
+
+    # ── Message handlers ──────────────────────────────────────────
+
     def on_job_table_widget_job_selected(self, message: JobTableWidget.JobSelected) -> None:
-        """Handle job selection from the job table."""
+        """Update right panel when a job is selected/highlighted in the table."""
         details_panel = self.query_one(JobDetailsWidget)
 
         # When GPU stats view is active, follow cursor to show new job's stats
         if details_panel._showing_gpu_stats:
             if message.job.state == "R":
-                # Only switch if it's a different job
                 if not details_panel._gpu_stats_job or details_panel._gpu_stats_job.job_id != message.job.job_id:
                     details_panel.show_gpu_stats(message.job, self.gpu_monitor)
             elif message.explicit:
-                # Clicked a non-running job — exit GPU view
                 details_panel.update_job(message.job, force=True)
             return
 
@@ -193,12 +259,14 @@ class MainScreen(Screen):
         gpu_hours = self.query_one(GPUHoursWidget)
         gpu_hours.update_running_jobs(message.jobs)
 
+    # ── Actions ───────────────────────────────────────────────────
+
     def action_quit(self) -> None:
         """Quit the application."""
         self.app.exit()
 
     def action_refresh(self) -> None:
-        """Refresh all data."""
+        """Trigger an immediate refresh of all widgets."""
         gpu_monitor = self.query_one(GPUMonitorWidget)
         gpu_monitor.refresh_data()
 
@@ -216,32 +284,75 @@ class MainScreen(Screen):
 
         self.notify("Data refreshed")
 
+    def action_sort_column_left(self) -> None:
+        """Move to the previous sortable column."""
+        try:
+            job_table = self.query_one(JobTableWidget)
+            job_table.move_sort_column(-1)
+            self.notify("← previous sort column")
+        except Exception as e:
+            self.notify(f"sort_column_left error: {e}", severity="error")
+
+    def action_sort_column_right(self) -> None:
+        """Move to the next sortable column."""
+        try:
+            job_table = self.query_one(JobTableWidget)
+            job_table.move_sort_column(1)
+            self.notify("→ next sort column")
+        except Exception as e:
+            self.notify(f"sort_column_right error: {e}", severity="error")
+
+    def action_sort(self) -> None:
+        """Change sorting for the current column."""
+        try:
+            job_table = self.query_one(JobTableWidget)
+            job_table.toggle_sort_direction()
+            self.notify("sort updated")
+        except Exception as e:
+            self.notify(f"sort error: {e}", severity="error")
+
+    def action_sort_direction(self) -> None:
+        """Toggle sort direction for the active sort column."""
+        try:
+            job_table = self.query_one(JobTableWidget)
+            job_table.toggle_sort_direction()
+            self.notify("sort direction toggled")
+        except Exception as e:
+            self.notify(f"sort direction error: {e}", severity="error")
+
+    def action_toggle_log_stream(self) -> None:
+        """Toggle between stderr and stdout in the details panel."""
+        details_panel = self.query_one(JobDetailsWidget)
+        details_panel.toggle_log_stream()
+
+    def action_toggle_edit_script(self) -> None:
+        """Toggle script read-only ↔ editable in the details panel."""
+        details_panel = self.query_one(JobDetailsWidget)
+        details_panel.toggle_edit_script()
+
     def action_new_job(self) -> None:
-        """Show new job dialog."""
+        """Show the new batch job submission dialog."""
         from .job_submit import JobSubmitScreen
         self.app.push_screen(JobSubmitScreen())
 
     def action_interactive(self) -> None:
-        """Start interactive session."""
+        """Show the interactive session dialog."""
         from .job_submit import InteractiveSessionScreen
         self.app.push_screen(InteractiveSessionScreen())
 
     def action_attach(self) -> None:
-        """Attach to selected job in embedded terminal."""
+        """Attach to selected running job — suspends TUI, resumes on exit."""
         job_table = self.query_one(JobTableWidget)
         job = job_table.get_selected_job()
 
         if job is None:
             self.notify("No job selected", severity="warning")
             return
-
         if job.state != "R":
             self.notify(f"Job {job.job_id} is not running (state: {job.state})", severity="warning")
             return
 
         cmd = self.slurm_client.attach_to_job(job.job_id)
-
-        # Suspend the TUI, hand control to the real terminal, resume on exit
         with self.app.suspend():
             subprocess.run("clear")
             print(f"\033[1;34m=== SLURM TUI - Attach to Job ===\033[0m")
@@ -255,7 +366,7 @@ class MainScreen(Screen):
             subprocess.run(cmd)
 
     def action_cancel(self) -> None:
-        """Cancel selected job(s)."""
+        """Cancel selected job(s) with confirmation dialog."""
         job_table = self.query_one(JobTableWidget)
         jobs = job_table.get_selected_jobs()
 
@@ -267,29 +378,18 @@ class MainScreen(Screen):
         self.app.push_screen(ConfirmCancelScreen(jobs))
 
     def action_toggle_users(self) -> None:
-        """Toggle between own jobs and all users."""
+        """Toggle between own jobs and all users' jobs."""
         job_table = self.query_one(JobTableWidget)
         job_table.toggle_all_users()
 
-    def action_sort(self) -> None:
-        """Cycle sort column."""
-        job_table = self.query_one(JobTableWidget)
-        job_table.cycle_sort()
-
-    def action_sort_direction(self) -> None:
-        """Toggle sort direction."""
-        job_table = self.query_one(JobTableWidget)
-        job_table.toggle_sort_direction()
-
     def action_gpu_stats(self) -> None:
-        """Show live GPU stats for the selected running job."""
+        """Show live per-GPU stats for the selected running job."""
         job_table = self.query_one(JobTableWidget)
         job = job_table.get_selected_job()
 
         if job is None:
             self.notify("No job selected", severity="warning")
             return
-
         if job.state != "R":
             self.notify(f"Job {job.job_id} is not running", severity="warning")
             return
@@ -298,12 +398,12 @@ class MainScreen(Screen):
         details_panel.show_gpu_stats(job, self.gpu_monitor)
 
     def action_toggle_running(self) -> None:
-        """Toggle running jobs expanded/compact view."""
+        """Toggle running jobs overview expanded/compact."""
         gpu_hours = self.query_one(GPUHoursWidget)
         gpu_hours.toggle_expanded()
 
     def action_toggle_hours(self) -> None:
-        """Toggle GPU hours list collapsed/expanded."""
+        """Toggle GPU hours leaderboard collapsed/expanded."""
         gpu_hours = self.query_one(GPUHoursWidget)
         gpu_hours.toggle_hours()
 
@@ -313,7 +413,6 @@ class MainScreen(Screen):
         partition = gpu_widget.cycle_partition_detail()
         details_panel = self.query_one(JobDetailsWidget)
         if partition is None:
-            # Cycled past last partition — back to job details
             details_panel.update_job(None, force=True)
             self.notify("GPU details closed")
         else:
@@ -364,14 +463,15 @@ class MainScreen(Screen):
         disk_quota.toggle_collapsed()
 
     def action_help(self) -> None:
-        """Show help."""
+        """Show keybinding cheatsheet as notification."""
         self.notify(
-            "q=Quit r=Refresh n=New i=Interactive a=Attach c=Cancel l=Logs b=Bookmarks e=Editor",
+            "y/←=Prev Col  c/→=Next Col  x/s=Sort  d=Dir  a=Attach  C=Cancel  "
+            "n=New  l=Logs  b=Bookmarks  e=Editor  w=stderr/stdout  q=Quit",
             timeout=5,
         )
 
     def action_view_logs(self) -> None:
-        """View logs for selected job."""
+        """Open full-screen log viewer for the selected job."""
         job_table = self.query_one(JobTableWidget)
         job = job_table.get_selected_job()
 
@@ -383,12 +483,12 @@ class MainScreen(Screen):
         self.app.push_screen(LogViewerScreen(job, self.slurm_client))
 
     def action_bookmarks(self) -> None:
-        """Show bookmarks."""
+        """Open bookmarks screen."""
         from .bookmarks import BookmarksScreen
         self.app.push_screen(BookmarksScreen(self.bookmark_manager))
 
     def action_add_bookmark(self) -> None:
-        """Add current job to bookmarks."""
+        """Bookmark the currently selected job."""
         job_table = self.query_one(JobTableWidget)
         job = job_table.get_selected_job()
 
@@ -400,7 +500,7 @@ class MainScreen(Screen):
         self.notify(f"Bookmarked job {job.job_id}")
 
     def action_toggle_console(self) -> None:
-        """Open a native shell, suspending the TUI."""
+        """Open a native shell, suspending the TUI until exit."""
         shell = os.environ.get("SHELL", "/bin/bash")
         with self.app.suspend():
             subprocess.run("clear")
@@ -409,6 +509,6 @@ class MainScreen(Screen):
             subprocess.run(shell)
 
     def action_editor(self) -> None:
-        """Open script editor."""
+        """Open the built-in script editor screen."""
         from .editor import EditorScreen
         self.app.push_screen(EditorScreen())

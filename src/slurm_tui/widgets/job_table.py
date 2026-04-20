@@ -380,23 +380,29 @@ class JobTableWidget(Widget):
         return 0
 
     def cycle_sort(self) -> None:
-        """Cycle to the next sort column."""
+        """Cycle to the next sort column (compatibility helper)."""
+        self.move_sort_column(1)
+
+    def move_sort_column(self, step: int) -> None:
+        """Move the active sort column left/right, wrapping around."""
         positions = self._col_positions
+        if not positions:
+            return
+        if self._sort_col_index is None:
+            self._sort_col_index = 0 if step >= 0 else len(positions) - 1
+            self._sort_reverse = False
+        else:
+            self._sort_col_index = (self._sort_col_index + step) % len(positions)
+        self._update_table()
+
+    def toggle_sort_direction(self) -> None:
+        """Toggle sort direction (asc/desc); activate sort on column 0 if none set."""
         if self._sort_col_index is None:
             self._sort_col_index = 0
             self._sort_reverse = False
         else:
-            self._sort_col_index += 1
-            if self._sort_col_index >= len(positions):
-                self._sort_col_index = None
-                self._sort_reverse = False
-        self._update_table()
-
-    def toggle_sort_direction(self) -> None:
-        """Toggle sort direction (asc/desc)."""
-        if self._sort_col_index is not None:
             self._sort_reverse = not self._sort_reverse
-            self._update_table()
+        self._update_table()
 
     def on_key(self, event) -> None:
         """Handle space key for multi-select."""
