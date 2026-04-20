@@ -378,23 +378,27 @@ class ConfirmCancelScreen(ModalScreen):
         ("n", "cancel", "Cancel"),
     ]
 
-    def __init__(self, job: Job):
+    def __init__(self, jobs: list[Job] | Job):
         super().__init__()
-        self.job = job
+        self.jobs = jobs if isinstance(jobs, list) else [jobs]
         self.slurm_client = SlurmClient()
 
     def compose(self) -> ComposeResult:
+        count = len(self.jobs)
+        title = f"✗ Cancel {count} Job{'s' if count > 1 else ''}?"
+        msg = f"Are you sure you want to cancel {'these jobs' if count > 1 else 'this job'}?"
+
+        info_lines = []
+        for job in self.jobs:
+            info_lines.append(f"  {job.job_id}  {job.name}  ({job.state})")
+        info_text = "\n".join(info_lines)
+
         with Vertical():
-            yield Static("✗ Cancel Job?", classes="title")
+            yield Static(title, classes="title")
             yield Static("─" * 46, classes="separator")
 
-            yield Static("Are you sure you want to cancel this job?", classes="message")
-            yield Static(
-                f"JobID: {self.job.job_id}\n"
-                f"Name: {self.job.name}\n"
-                f"State: {self.job.state}",
-                classes="job-info",
-            )
+            yield Static(msg, classes="message")
+            yield Static(info_text, classes="job-info")
 
             yield Static("─" * 46, classes="separator")
 
@@ -409,12 +413,18 @@ class ConfirmCancelScreen(ModalScreen):
             self._cancel_job()
 
     def _cancel_job(self) -> None:
-        success, message = self.slurm_client.cancel_job(self.job.job_id)
+        failed = []
+        for job in self.jobs:
+            success, message = self.slurm_client.cancel_job(job.job_id)
+            if not success:
+                failed.append(f"{job.job_id}: {message}")
 
-        if success:
-            self.notify(message, severity="information")
+        if failed:
+            self.notify(f"Failed to cancel: {', '.join(failed)}", severity="error")
         else:
-            self.notify(f"Failed: {message}", severity="error")
+            count = len(self.jobs)
+            ids = ", ".join(j.job_id for j in self.jobs)
+            self.notify(f"Cancelled {count} job{'s' if count > 1 else ''}: {ids}", severity="information")
 
         self.app.pop_screen()
 
@@ -423,3 +433,257 @@ class ConfirmCancelScreen(ModalScreen):
 
     def action_confirm(self) -> None:
         self._cancel_job()
+
+
+class QosUpdateScreen(ModalScreen):
+    """Modal screen to change QOS of a pending job."""
+
+    DEFAULT_CSS = """
+    QosUpdateScreen {
+        align: center middle;
+        background: rgba(26, 27, 38, 0.9);
+    }
+
+    QosUpdateScreen > Vertical {
+        width: 50;
+        height: auto;
+        background: #1a1b26;
+        padding: 1 2;
+    }
+
+    QosUpdateScreen .title {
+        text-style: bold;
+        text-align: center;
+        color: #7aa2f7;
+        padding: 0 0 1 0;
+    }
+
+    QosUpdateScreen .separator {
+        color: #414868;
+        margin-bottom: 1;
+    }
+
+    QosUpdateScreen .job-info {
+        text-align: center;
+        padding: 1;
+        background: #1e2030;
+        margin: 1 0;
+        color: #565f89;
+    }
+
+    QosUpdateScreen .buttons {
+        layout: horizontal;
+        align: center middle;
+        height: auto;
+        margin-top: 1;
+        padding-top: 1;
+    }
+
+    QosUpdateScreen .buttons Button {
+        margin: 0 1;
+    }
+    """
+
+    BINDINGS = [
+        ("escape", "dismiss", "Cancel"),
+    ]
+
+    def __init__(self, jobs: list[Job] | Job, slurm_client: SlurmClient):
+        super().__init__()
+        self.jobs = jobs if isinstance(jobs, list) else [jobs]
+        self.slurm_client = slurm_client
+        self._qos_list: list[str] = []
+
+    def compose(self) -> ComposeResult:
+        self._qos_list = self.slurm_client.get_available_qos()
+        count = len(self.jobs)
+        title = f"Change QOS — {count} Job{'s' if count > 1 else ''}"
+        info_lines = [f"  {j.job_id}  {j.name}  ({j.partition})" for j in self.jobs]
+        info_text = "\n".join(info_lines)
+
+        with Vertical():
+            yield Static(title, classes="title")
+            yield Static("─" * 46, classes="separator")
+            yield Static(info_text, classes="job-info")
+
+            if self._qos_list:
+                options = [(q, q) for q in self._qos_list]
+                yield Select(options, prompt="Select QOS", id="qos-select")
+            else:
+                yield Input(placeholder="Enter QOS name", id="qos-input")
+
+            yield Static("─" * 46, classes="separator")
+            with Horizontal(classes="buttons"):
+                yield Button("Cancel", variant="default", id="cancel")
+                yield Button("Apply", variant="primary", id="apply")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "cancel":
+            self.app.pop_screen()
+        elif event.button.id == "apply":
+            self._apply_qos()
+
+    def _apply_qos(self) -> None:
+        qos = None
+        try:
+            select = self.query_one("#qos-select", Select)
+            if select.value != Select.BLANK:
+                qos = str(select.value)
+        except Exception:
+            pass
+
+        if qos is None:
+            try:
+                inp = self.query_one("#qos-input", Input)
+                qos = inp.value.strip()
+            except Exception:
+                pass
+
+        if not qos:
+            self.notify("No QOS selected", severity="warning")
+            return
+
+        failed = []
+        for job in self.jobs:
+            success, message = self.slurm_client.update_job_qos(job.job_id, qos)
+            if not success:
+                failed.append(f"{job.job_id}: {message}")
+
+        if failed:
+            self.notify(f"Failed: {', '.join(failed)}", severity="error")
+        else:
+            count = len(self.jobs)
+            ids = ", ".join(j.job_id for j in self.jobs)
+            self.notify(f"QOS → {qos} for {count} job{'s' if count > 1 else ''}: {ids}", severity="information")
+
+        self.app.pop_screen()
+
+    def action_dismiss(self) -> None:
+        self.app.pop_screen()
+
+
+class PartitionUpdateScreen(ModalScreen):
+    """Modal screen to change partition of a pending job."""
+
+    DEFAULT_CSS = """
+    PartitionUpdateScreen {
+        align: center middle;
+        background: rgba(26, 27, 38, 0.9);
+    }
+
+    PartitionUpdateScreen > Vertical {
+        width: 50;
+        height: auto;
+        background: #1a1b26;
+        padding: 1 2;
+    }
+
+    PartitionUpdateScreen .title {
+        text-style: bold;
+        text-align: center;
+        color: #7aa2f7;
+        padding: 0 0 1 0;
+    }
+
+    PartitionUpdateScreen .separator {
+        color: #414868;
+        margin-bottom: 1;
+    }
+
+    PartitionUpdateScreen .job-info {
+        text-align: center;
+        padding: 1;
+        background: #1e2030;
+        margin: 1 0;
+        color: #565f89;
+    }
+
+    PartitionUpdateScreen .buttons {
+        layout: horizontal;
+        align: center middle;
+        height: auto;
+        margin-top: 1;
+        padding-top: 1;
+    }
+
+    PartitionUpdateScreen .buttons Button {
+        margin: 0 1;
+    }
+    """
+
+    BINDINGS = [
+        ("escape", "dismiss", "Cancel"),
+    ]
+
+    def __init__(self, jobs: list[Job] | Job, slurm_client: SlurmClient):
+        super().__init__()
+        self.jobs = jobs if isinstance(jobs, list) else [jobs]
+        self.slurm_client = slurm_client
+        self._partition_list: list[str] = []
+
+    def compose(self) -> ComposeResult:
+        self._partition_list = self.slurm_client.get_available_partitions()
+        count = len(self.jobs)
+        title = f"Change Partition — {count} Job{'s' if count > 1 else ''}"
+        info_lines = [f"  {j.job_id}  {j.name}  ({j.partition})" for j in self.jobs]
+        info_text = "\n".join(info_lines)
+
+        with Vertical():
+            yield Static(title, classes="title")
+            yield Static("─" * 46, classes="separator")
+            yield Static(info_text, classes="job-info")
+
+            if self._partition_list:
+                options = [(p, p) for p in self._partition_list]
+                yield Select(options, prompt="Select Partition", id="partition-select")
+            else:
+                yield Input(placeholder="Enter partition name", id="partition-input")
+
+            yield Static("─" * 46, classes="separator")
+            with Horizontal(classes="buttons"):
+                yield Button("Cancel", variant="default", id="cancel")
+                yield Button("Apply", variant="primary", id="apply")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "cancel":
+            self.app.pop_screen()
+        elif event.button.id == "apply":
+            self._apply_partition()
+
+    def _apply_partition(self) -> None:
+        partition = None
+        try:
+            select = self.query_one("#partition-select", Select)
+            if select.value != Select.BLANK:
+                partition = str(select.value)
+        except Exception:
+            pass
+
+        if partition is None:
+            try:
+                inp = self.query_one("#partition-input", Input)
+                partition = inp.value.strip()
+            except Exception:
+                pass
+
+        if not partition:
+            self.notify("No partition selected", severity="warning")
+            return
+
+        failed = []
+        for job in self.jobs:
+            success, message = self.slurm_client.update_job_partition(job.job_id, partition)
+            if not success:
+                failed.append(f"{job.job_id}: {message}")
+
+        if failed:
+            self.notify(f"Failed: {', '.join(failed)}", severity="error")
+        else:
+            count = len(self.jobs)
+            ids = ", ".join(j.job_id for j in self.jobs)
+            self.notify(f"Partition → {partition} for {count} job{'s' if count > 1 else ''}: {ids}", severity="information")
+
+        self.app.pop_screen()
+
+    def action_dismiss(self) -> None:
+        self.app.pop_screen()

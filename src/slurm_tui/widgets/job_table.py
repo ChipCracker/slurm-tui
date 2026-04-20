@@ -1,13 +1,4 @@
-"""Job Table Widget - shows SLURM jobs in a DataTable.
-
-Performance design:
-    - Refreshes every 10s via a background thread worker (@work(thread=True))
-      so subprocess calls never block the event loop.
-    - Uses differential updates (update_cell_at) instead of clear+rebuild
-      to preserve scroll position and avoid flicker.
-    - Only adds/removes rows when the job count actually changes.
-    - The worker is exclusive=True so a slow squeue can't pile up.
-"""
+"""Job Table Widget - shows SLURM jobs."""
 
 from __future__ import annotations
 
@@ -17,46 +8,54 @@ from textual.containers import Horizontal
 from textual.message import Message
 from textual.reactive import reactive
 from textual.widgets import Static, DataTable
-from textual.widgets._data_table import Coordinate
 from textual.widget import Widget
 from textual.worker import get_current_worker
 
 from ..utils.slurm import SlurmClient, Job
 
 
-# Tokyo Night themed status symbols
+# Status symbols with colors
 STATUS_SYMBOLS = {
-    "R": ("●", "#9ece6a"),    # Running  — green
-    "PD": ("◐", "#e0af68"),   # Pending  — yellow
-    "CD": ("✓", "#7aa2f7"),   # Completed — blue
-    "CG": ("✓", "#7aa2f7"),   # Completing — blue
-    "F": ("✗", "#f7768e"),    # Failed   — red
-    "CA": ("⏹", "#565f89"),   # Cancelled — gray
-    "TO": ("⏱", "#f7768e"),   # Timeout  — red
-    "NF": ("✗", "#f7768e"),   # Node Fail — red
+    "R": ("●", "#9ece6a"),    # Running - green
+    "PD": ("◐", "#e0af68"),   # Pending - yellow
+    "CD": ("✓", "#7aa2f7"),   # Completed - blue
+    "CG": ("✓", "#7aa2f7"),   # Completing - blue
+    "F": ("✗", "#f7768e"),    # Failed - red
+    "CA": ("⏹", "#565f89"),   # Cancelled - gray
+    "TO": ("⏱", "#f7768e"),   # Timeout - red
+    "NF": ("✗", "#f7768e"),   # Node Fail - red
 }
 
-# Fixed-width column header; positions used for sort indicator overlay
-BASE_HEADER = "    ID       Name                   State    Part      GPU     Time"
+HEADER_ALL = "    ID       Name                   User         State    Part      QOS          GPU     Time"
+HEADER_MY  = "    ID       Name                   State    Part      QOS          GPU     Time"
 
-# (start, end) character positions of each column label in BASE_HEADER
-COL_POSITIONS = [
+COL_POSITIONS_ALL = [
+    (4, 6),    # ID
+    (13, 17),  # Name
+    (36, 40),  # User
+    (49, 54),  # State
+    (58, 62),  # Part
+    (68, 71),  # QOS
+    (81, 84),  # GPU
+    (89, 93),  # Time
+]
+
+COL_POSITIONS_MY = [
     (4, 6),    # ID
     (13, 17),  # Name
     (36, 41),  # State
     (45, 49),  # Part
-    (55, 58),  # GPU
-    (63, 67),  # Time
+    (55, 58),  # QOS
+    (68, 71),  # GPU
+    (76, 80),  # Time
 ]
 
-SORT_COLUMN_NAMES = ["ID", "Name", "State", "Partition", "GPU", "Time"]
-
-# DataTable column identifiers — used by add_columns() and update_cell_at()
-COL_KEYS = ("id", "name", "state", "partition", "gpu", "time")
+SORT_NAMES_ALL = ["ID", "Name", "User", "State", "Partition", "QOS", "GPU", "Time"]
+SORT_NAMES_MY  = ["ID", "Name", "State", "Partition", "QOS", "GPU", "Time"]
 
 
 def _parse_runtime(runtime: str) -> int:
-    """Parse SLURM runtime string (e.g. '1-02:30:00') to total seconds."""
+    """Parse SLURM runtime string to total seconds for sorting."""
     if not runtime or runtime == "0:00":
         return 0
     try:
@@ -76,11 +75,7 @@ def _parse_runtime(runtime: str) -> int:
 
 
 class JobTableWidget(Widget):
-    """SLURM job list with auto-refresh and in-place sorting.
-
-    Posts JobSelected when the cursor moves and JobsRefreshed after each
-    data refresh so other widgets (e.g. GPUHoursWidget) can react.
-    """
+    """Widget showing SLURM jobs in a table."""
 
     DEFAULT_CSS = """
     JobTableWidget {
@@ -137,32 +132,28 @@ class JobTableWidget(Widget):
     jobs: reactive[list[Job]] = reactive(list)
     show_all_users: reactive[bool] = reactive(False)
 
-    # ── Messages ──────────────────────────────────────────────────
-
     class JobSelected(Message):
-        """Emitted when a job row is highlighted or selected."""
+        """Message sent when a job is selected."""
 
         def __init__(self, job: Job, explicit: bool = False) -> None:
             self.job = job
-            self.explicit = explicit  # True = Enter/click, False = cursor move
+            self.explicit = explicit
             super().__init__()
 
     class JobsRefreshed(Message):
-        """Emitted after a successful data refresh."""
+        """Message sent when the job list has been refreshed."""
 
         def __init__(self, jobs: list[Job]) -> None:
             self.jobs = jobs
             super().__init__()
 
     class ActionRequested(Message):
-        """Emitted when a keybinding action targets a specific job."""
+        """Message sent when an action is requested on a job."""
 
         def __init__(self, job: Job, action: str) -> None:
             self.job = job
             self.action = action
             super().__init__()
-
-    # ── Init ──────────────────────────────────────────────────────
 
     def __init__(
         self,
@@ -175,102 +166,84 @@ class JobTableWidget(Widget):
         self.refresh_interval = refresh_interval
         self._timer = None
         self._selected_job: Job | None = None
-        self._sort_col_index: int | None = None  # None = natural order
+        self._sort_col_index: int | None = None
         self._sort_reverse: bool = False
-        self._display_jobs: list[Job] = []  # jobs in current display order
+        self._display_jobs: list[Job] = []
+        self._selected_ids: set[str] = set()
+        self._table_has_user_col: bool = False
 
     def compose(self) -> ComposeResult:
+        # Section header
         with Horizontal(classes="section-header"):
             yield Static("Jobs", classes="section-title")
             yield Static("", id="jobs-count", classes="section-info")
 
-        yield Static("─" * 66, classes="separator")
+        # Separator line
+        yield Static("─" * 94, classes="separator")
 
-        # Custom column header (DataTable's built-in header is hidden)
-        yield Static(BASE_HEADER, id="column-header", classes="column-header")
-        yield Static("─" * 66, classes="header-separator")
+        # Column header
+        yield Static(
+            HEADER_MY,
+            id="column-header",
+            classes="column-header",
+        )
+        yield Static("─" * 94, classes="header-separator")
 
-        # show_header=False: we render our own header with sort indicators
+        # Data table without header (we made our own)
         table = DataTable(zebra_stripes=False, show_header=False)
         table.cursor_type = "row"
-        table.add_columns(*COL_KEYS)
+        table.add_columns("id", "name", "state", "partition", "qos", "gpu", "time")
         yield table
 
     def on_mount(self) -> None:
-        """Start the auto-refresh timer (first fetch is immediate)."""
+        """Start timer and load initial data."""
         self.refresh_data()
         self._timer = self.set_interval(self.refresh_interval, self.refresh_data)
 
-    # ── Data fetching ─────────────────────────────────────────────
-    #
-    # exclusive=True cancels any in-flight worker before starting a new
-    # one, preventing stale data from overwriting fresh data.
-
     @work(thread=True, exclusive=True)
     def refresh_data(self) -> None:
-        """Fetch jobs from squeue in a background thread."""
+        """Refresh job data in background thread."""
         worker = get_current_worker()
         try:
             jobs = self.slurm_client.get_jobs(all_users=self.show_all_users)
             if not worker.is_cancelled:
                 self.app.call_from_thread(self._apply_refresh, jobs)
         except Exception:
-            pass  # network/slurm errors are silently ignored to keep TUI alive
+            pass
 
     def _apply_refresh(self, jobs: list[Job]) -> None:
-        """Apply fetched data on the main thread (safe for UI updates)."""
+        """Apply refreshed job data on the main thread."""
         try:
             table = self.query_one(DataTable)
-            # Remember cursor + scroll so we can restore both after update
             old_cursor_row = table.cursor_row
-            old_scroll_y = table.scroll_y
             old_job_id = None
             if old_cursor_row is not None and old_cursor_row < len(self._display_jobs):
                 old_job_id = self._display_jobs[old_cursor_row].job_id
             self.jobs = jobs
-            self._update_table(old_job_id, old_scroll_y)
+            self._update_table(old_job_id)
         except Exception:
             pass
 
-    # ── Table rendering ───────────────────────────────────────────
-    #
-    # Instead of clear() + add_row() (which resets scroll position),
-    # we use update_cell_at() for existing rows and only add/remove
-    # rows when the total count changes.  This is O(n*m) per refresh
-    # but with typically <100 jobs and 6 columns it's negligible.
-
-    @staticmethod
-    def _render_job_row(job: Job) -> tuple:
-        """Convert a Job into a tuple of Rich-markup cell strings."""
-        symbol, color = STATUS_SYMBOLS.get(job.state, ("?", "#565f89"))
-        state_display = f"[{color}]{symbol}[/] [{color}]{job.state:3}[/]"
-        gpu_display = f"[#bb9af7]{job.gpus:2}[/]" if job.gpus > 0 else "[#414868] -[/]"
-        time_display = (
-            f"[#565f89]{job.runtime:>8}[/]"
-            if job.runtime and job.runtime != "0:00"
-            else "[#414868]      —[/]"
-        )
-        return (
-            f"[#c0caf5]{job.job_id:>7}[/]",
-            f"{job.name[:20]:<20}",
-            state_display,
-            f"[#7dcfff]{job.partition:<8}[/]",
-            gpu_display,
-            time_display,
-        )
-
-    def _update_table(self, old_job_id: str | None = None, old_scroll_y: float | None = None) -> None:
-        """Differentially update the DataTable — no clear/rebuild.
-
-        1. Sort the job list if a sort column is active.
-        2. Update existing rows in-place via update_cell_at().
-        3. Add new rows or remove excess rows as needed.
-        4. Restore the cursor to the previously selected job.
-        5. Restore scroll position so the viewport doesn't jump.
-        """
+    def _update_table(self, old_job_id: str | None = None) -> None:
+        """Update the data table with current jobs."""
         table = self.query_one(DataTable)
+        show_user = self.show_all_users
 
-        # Apply sort
+        # Rebuild columns when user-column visibility changes
+        if show_user != self._table_has_user_col:
+            table.clear(columns=True)
+            if show_user:
+                table.add_columns("id", "name", "user", "state", "partition", "qos", "gpu", "time")
+            else:
+                table.add_columns("id", "name", "state", "partition", "qos", "gpu", "time")
+            self._table_has_user_col = show_user
+            # Reset sort when columns change
+            self._sort_col_index = None
+            self._sort_reverse = False
+        else:
+            table.clear()
+
+        # Sort jobs if sort is active
         if self._sort_col_index is not None:
             self._display_jobs = sorted(
                 self.jobs,
@@ -280,108 +253,150 @@ class JobTableWidget(Widget):
         else:
             self._display_jobs = list(self.jobs)
 
-        # Update the custom column header (shows sort indicator)
-        self.query_one("#column-header", Static).update(self._build_column_header())
+        # Update column header with sort indicator
+        header = self.query_one("#column-header", Static)
+        header.update(self._build_column_header())
 
-        # Render all rows
-        new_rows = [self._render_job_row(job) for job in self._display_jobs]
-        current_row_count = table.row_count
+        for job in self._display_jobs:
+            # Status symbol with color
+            state = job.state
+            symbol, color = STATUS_SYMBOLS.get(state, ("?", "#565f89"))
+            state_display = f"[{color}]{symbol}[/] [{color}]{state:3}[/]"
 
-        # Try differential update first (preserves scroll position).
-        # Fall back to clear+rebuild if anything goes wrong.
-        try:
-            for i, cells in enumerate(new_rows):
-                if i < current_row_count:
-                    for col_idx, value in enumerate(cells):
-                        table.update_cell_at(
-                            Coordinate(i, col_idx), value, update_width=False
-                        )
-                else:
-                    table.add_row(*cells)
+            # GPU with color
+            if job.gpus > 0:
+                gpu_display = f"[#bb9af7]{job.gpus:2}[/]"
+            else:
+                gpu_display = "[#414868] -[/]"
 
-            # Remove excess rows
-            while table.row_count > len(new_rows):
-                last_key = list(table.rows.keys())[-1]
-                table.remove_row(last_key)
-        except Exception:
-            # Fallback: clear and rebuild (resets scroll but always works)
-            table.clear()
-            for cells in new_rows:
-                table.add_row(*cells)
+            # Time format
+            if job.runtime and job.runtime != "0:00":
+                time_display = f"[#565f89]{job.runtime:>8}[/]"
+            else:
+                time_display = "[#414868]      —[/]"
 
-        # Update job count label
+            # Partition
+            partition_display = f"[#7dcfff]{job.partition:<8}[/]"
+
+            # Selection marker
+            if job.job_id in self._selected_ids:
+                id_display = f"[#f7768e]◉ {job.job_id:>6}[/]"
+            else:
+                id_display = f"[#c0caf5]  {job.job_id:>6}[/]"
+
+            # QOS
+            qos_display = f"[#e0af68]{job.qos[:10]:<10}[/]"
+
+            if show_user:
+                user_display = f"[#c0caf5]{job.user[:10]:<10}[/]"
+                table.add_row(
+                    id_display,
+                    f"{job.name[:20]:<20}",
+                    user_display,
+                    state_display,
+                    partition_display,
+                    qos_display,
+                    gpu_display,
+                    time_display,
+                )
+            else:
+                table.add_row(
+                    id_display,
+                    f"{job.name[:20]:<20}",
+                    state_display,
+                    partition_display,
+                    qos_display,
+                    gpu_display,
+                    time_display,
+                )
+
+        # Update count
+        count_label = self.query_one("#jobs-count", Static)
         mode = "all" if self.show_all_users else "my jobs"
-        self.query_one("#jobs-count", Static).update(f"{mode} ({len(self.jobs)})")
+        sel_count = len(self._selected_ids)
+        if sel_count > 0:
+            count_label.update(f"{mode} ({len(self.jobs)}) · {sel_count} selected")
+        else:
+            count_label.update(f"{mode} ({len(self.jobs)})")
 
-        # Notify other widgets
+        # Notify other widgets about the refreshed job list
         self.post_message(self.JobsRefreshed(self.jobs))
 
-        # Restore cursor to the same job (it may have moved due to sorting)
+        # Restore cursor position
         if old_job_id is not None:
             for i, job in enumerate(self._display_jobs):
                 if job.job_id == old_job_id:
                     table.move_cursor(row=i)
                     break
 
-        # Restore scroll position — move_cursor scrolls to make the cursor
-        # visible, but the user may have scrolled elsewhere with the mouse.
-        if old_scroll_y is not None:
-            table.scroll_to(y=old_scroll_y, animate=False)
+    @property
+    def _col_positions(self) -> list[tuple[int, int]]:
+        return COL_POSITIONS_ALL if self.show_all_users else COL_POSITIONS_MY
 
-    # ── Sort ──────────────────────────────────────────────────────
+    @property
+    def _base_header(self) -> str:
+        return HEADER_ALL if self.show_all_users else HEADER_MY
+
+    @property
+    def _sort_names(self) -> list[str]:
+        return SORT_NAMES_ALL if self.show_all_users else SORT_NAMES_MY
 
     def _build_column_header(self) -> str:
-        """Build the column header string, inserting a ▲/▼ sort indicator."""
+        """Build column header string with sort indicator."""
+        base = self._base_header
         if self._sort_col_index is None:
-            return BASE_HEADER
+            return base
+
+        positions = self._col_positions
         indicator = "▲" if not self._sort_reverse else "▼"
-        start, end = COL_POSITIONS[self._sort_col_index]
-        col_text = BASE_HEADER[start:end]
-        before = BASE_HEADER[:start]
-        after = BASE_HEADER[end + 1:] if end < len(BASE_HEADER) else ""
+        start, end = positions[self._sort_col_index]
+        col_text = base[start:end]
+        before = base[:start]
+        after = base[end + 1:] if end < len(base) else ""
         return f"{before}[#7aa2f7]{col_text}{indicator}[/]{after}"
 
     def _get_sort_key(self, job: Job):
-        """Return a comparable sort key for the active sort column."""
-        if self._sort_col_index == 0:    # ID — numeric sort
+        """Return sort key for the current sort column."""
+        col_name = self._sort_names[self._sort_col_index]
+        if col_name == "ID":
             try:
                 return (0, int(job.job_id))
             except ValueError:
-                return (1, job.job_id)   # non-numeric IDs sort after numeric
-        elif self._sort_col_index == 1:  # Name
+                return (1, job.job_id)
+        elif col_name == "Name":
             return job.name.lower()
-        elif self._sort_col_index == 2:  # State
+        elif col_name == "User":
+            return job.user.lower()
+        elif col_name == "State":
             return job.state
-        elif self._sort_col_index == 3:  # Partition
+        elif col_name == "Partition":
             return job.partition
-        elif self._sort_col_index == 4:  # GPU
+        elif col_name == "QOS":
+            return job.qos.lower()
+        elif col_name == "GPU":
             return job.gpus
-        elif self._sort_col_index == 5:  # Time
+        elif col_name == "Time":
             return _parse_runtime(job.runtime)
         return 0
 
     def cycle_sort(self) -> None:
-        """Advance to the next sort column.
-
-        Kept as a compatibility helper for older call sites.
-        """
+        """Cycle to the next sort column (compatibility helper)."""
         self.move_sort_column(1)
 
     def move_sort_column(self, step: int) -> None:
         """Move the active sort column left/right, wrapping around."""
-        if not COL_POSITIONS:
+        positions = self._col_positions
+        if not positions:
             return
-
         if self._sort_col_index is None:
-            self._sort_col_index = 0 if step >= 0 else len(COL_POSITIONS) - 1
+            self._sort_col_index = 0 if step >= 0 else len(positions) - 1
             self._sort_reverse = False
         else:
-            self._sort_col_index = (self._sort_col_index + step) % len(COL_POSITIONS)
-
+            self._sort_col_index = (self._sort_col_index + step) % len(positions)
         self._update_table()
 
     def toggle_sort_direction(self) -> None:
-        """Toggle ascending ↔ descending for the active sort column."""
+        """Toggle sort direction (asc/desc); activate sort on column 0 if none set."""
         if self._sort_col_index is None:
             self._sort_col_index = 0
             self._sort_reverse = False
@@ -389,29 +404,58 @@ class JobTableWidget(Widget):
             self._sort_reverse = not self._sort_reverse
         self._update_table()
 
-    # ── Row selection ─────────────────────────────────────────────
+    def on_key(self, event) -> None:
+        """Handle space key for multi-select."""
+        if event.key == "space":
+            self.action_toggle_select()
+            event.prevent_default()
+            event.stop()
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
-        """Enter/click on a row — explicit selection."""
+        """Handle row selection (Enter/click)."""
         job = self.get_selected_job()
         if job:
             self._selected_job = job
             self.post_message(self.JobSelected(job, explicit=True))
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
-        """Cursor moved to a new row — passive highlight."""
+        """Notify of selection when cursor moves."""
         job = self.get_selected_job()
         if job:
             self.post_message(self.JobSelected(job))
 
     def get_selected_job(self) -> Job | None:
-        """Return the Job under the cursor, or None."""
+        """Get the currently selected job."""
         table = self.query_one(DataTable)
         if table.cursor_row is not None and 0 <= table.cursor_row < len(self._display_jobs):
             return self._display_jobs[table.cursor_row]
         return None
 
+    def action_toggle_select(self) -> None:
+        """Toggle selection of the job under the cursor."""
+        job = self.get_selected_job()
+        if job is None:
+            return
+        if job.job_id in self._selected_ids:
+            self._selected_ids.discard(job.job_id)
+        else:
+            self._selected_ids.add(job.job_id)
+        self._update_table(job.job_id)
+
+    def get_selected_jobs(self) -> list[Job]:
+        """Get all marked jobs. Falls back to cursor job if none marked."""
+        if self._selected_ids:
+            return [j for j in self.jobs if j.job_id in self._selected_ids]
+        job = self.get_selected_job()
+        return [job] if job else []
+
+    def clear_selection(self) -> None:
+        """Clear all marked jobs."""
+        self._selected_ids.clear()
+        old_job = self.get_selected_job()
+        self._update_table(old_job.job_id if old_job else None)
+
     def toggle_all_users(self) -> None:
-        """Toggle between own jobs and all users' jobs."""
+        """Toggle between showing own jobs and all jobs."""
         self.show_all_users = not self.show_all_users
         self.refresh_data()

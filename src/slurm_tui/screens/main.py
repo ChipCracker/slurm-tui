@@ -33,9 +33,10 @@ from textual.containers import Container, Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import Static
 
-from ..widgets import GPUMonitorWidget, GPUHoursWidget, JobTableWidget, JobDetailsWidget
+from ..widgets import GPUMonitorWidget, GPUHoursWidget, JobTableWidget, JobDetailsWidget, DiskQuotaWidget
 from ..utils.slurm import SlurmClient
 from ..utils.gpu import GPUMonitor
+from ..utils.quota import QuotaMonitor
 from ..utils.bookmarks import BookmarkManager
 
 
@@ -86,19 +87,8 @@ class MainScreen(Screen):
     }
 
     MainScreen > #main-content > #left-panel > #top-panel {
-        layout: horizontal;
         height: auto;
-        min-height: 6;
-        max-height: 10;
-    }
-
-    MainScreen > #main-content > #left-panel > #top-panel > GPUMonitorWidget {
-        width: 1fr;
-    }
-
-    MainScreen > #main-content > #left-panel > #gpu-hours-panel {
-        height: auto;
-        max-height: 24;
+        max-height: 50%;
     }
 
     MainScreen > #main-content > #left-panel > #bottom-panel {
@@ -153,6 +143,10 @@ class MainScreen(Screen):
         ("B", "add_bookmark", "Add Bookmark"),
         ("ctrl+e", "toggle_edit_script", "Edit Script"),
         ("e", "editor", "Editor"),
+        ("p", "change_qos", "QOS"),
+        ("P", "change_partition", "Partition"),
+        ("f", "toggle_quota_visible", "Quota"),
+        ("F", "toggle_quota_collapse", "Quota ↕"),
         ("t", "toggle_console", "Terminal"),
         ("?", "help", "Help"),
     ]
@@ -161,6 +155,7 @@ class MainScreen(Screen):
         super().__init__()
         self.slurm_client = SlurmClient()
         self.gpu_monitor = GPUMonitor()
+        self.quota_monitor = QuotaMonitor()
         self.bookmark_manager = BookmarkManager()
 
     def compose(self) -> ComposeResult:
@@ -171,18 +166,22 @@ class MainScreen(Screen):
 
         # Main 2-column layout
         with Horizontal(id="main-content"):
-            # Left panel — GPU monitor, GPU hours, job table
+            # Left panel — GPU monitor, GPU hours, quota, job table
             with Vertical(id="left-panel"):
                 with Container(id="top-panel"):
                     yield GPUMonitorWidget(
                         gpu_monitor=self.gpu_monitor,
                         refresh_interval=10.0,
                     )
-                with Container(id="gpu-hours-panel"):
                     yield GPUHoursWidget(
                         gpu_monitor=self.gpu_monitor,
                         refresh_interval=60.0,
                     )
+                    yield DiskQuotaWidget(
+                        quota_monitor=self.quota_monitor,
+                        refresh_interval=60.0,
+                    )
+
                 with Container(id="bottom-panel"):
                     yield JobTableWidget(
                         slurm_client=self.slurm_client,
@@ -204,6 +203,7 @@ class MainScreen(Screen):
             "[#7aa2f7]n[/]ew  [#7aa2f7]i[/]nteractive  [#7aa2f7]u[/]sers  "
             "[#7aa2f7]o[/]verview  [#7aa2f7]h[/]ours  "
             "[#7aa2f7]g[/]pu  [#7aa2f7]v[/]GPU  [#7aa2f7]w[/]stderr/out  "
+            "[#7aa2f7]p[/]qos  [#7aa2f7]P[/]art  [#7aa2f7]f[/]quota  "
             "[#7aa2f7]l[/]ogs  [#7aa2f7]b[/]ookmarks  "
             "[#7aa2f7]e[/]ditor  [#7aa2f7]t[/]erminal  [#7aa2f7]q[/]uit",
             classes="keybindings",
@@ -272,6 +272,9 @@ class MainScreen(Screen):
 
         gpu_hours = self.query_one(GPUHoursWidget)
         gpu_hours.refresh_data()
+
+        disk_quota = self.query_one(DiskQuotaWidget)
+        disk_quota.refresh_data()
 
         job_table = self.query_one(JobTableWidget)
         job_table.refresh_data()
@@ -351,19 +354,28 @@ class MainScreen(Screen):
 
         cmd = self.slurm_client.attach_to_job(job.job_id)
         with self.app.suspend():
+            subprocess.run("clear")
+            print(f"\033[1;34m=== SLURM TUI - Attach to Job ===\033[0m")
+            print(f"  Job ID:     \033[1m{job.job_id}\033[0m")
+            print(f"  Name:       {job.name}")
+            print(f"  Partition:  {job.partition}")
+            print(f"  Node:       {job.node}")
+            print(f"  GPUs:       {job.gpus}   CPUs: {job.cpus}   Memory: {job.memory}")
+            print(f"  Runtime:    {job.runtime}")
+            print(f"\nType \033[1mexit\033[0m or press \033[1mCtrl+D\033[0m to return to the TUI.\n")
             subprocess.run(cmd)
 
     def action_cancel(self) -> None:
-        """Cancel selected job (with confirmation dialog)."""
+        """Cancel selected job(s) with confirmation dialog."""
         job_table = self.query_one(JobTableWidget)
-        job = job_table.get_selected_job()
+        jobs = job_table.get_selected_jobs()
 
-        if job is None:
+        if not jobs:
             self.notify("No job selected", severity="warning")
             return
 
         from .job_submit import ConfirmCancelScreen
-        self.app.push_screen(ConfirmCancelScreen(job))
+        self.app.push_screen(ConfirmCancelScreen(jobs))
 
     def action_toggle_users(self) -> None:
         """Toggle between own jobs and all users' jobs."""
@@ -406,6 +418,50 @@ class MainScreen(Screen):
         else:
             details_panel.update_partition(partition, self.gpu_monitor)
 
+    def action_change_qos(self) -> None:
+        """Change QOS of pending job(s)."""
+        job_table = self.query_one(JobTableWidget)
+        jobs = job_table.get_selected_jobs()
+
+        if not jobs:
+            self.notify("No job selected", severity="warning")
+            return
+
+        pending = [j for j in jobs if j.state == "PD"]
+        if not pending:
+            self.notify("No pending jobs in selection", severity="warning")
+            return
+
+        from .job_submit import QosUpdateScreen
+        self.app.push_screen(QosUpdateScreen(pending, self.slurm_client))
+
+    def action_change_partition(self) -> None:
+        """Change partition of pending job(s)."""
+        job_table = self.query_one(JobTableWidget)
+        jobs = job_table.get_selected_jobs()
+
+        if not jobs:
+            self.notify("No job selected", severity="warning")
+            return
+
+        pending = [j for j in jobs if j.state == "PD"]
+        if not pending:
+            self.notify("No pending jobs in selection", severity="warning")
+            return
+
+        from .job_submit import PartitionUpdateScreen
+        self.app.push_screen(PartitionUpdateScreen(pending, self.slurm_client))
+
+    def action_toggle_quota_visible(self) -> None:
+        """Toggle disk quota widget visibility."""
+        disk_quota = self.query_one(DiskQuotaWidget)
+        disk_quota.toggle_visible()
+
+    def action_toggle_quota_collapse(self) -> None:
+        """Toggle disk quota collapsed/expanded."""
+        disk_quota = self.query_one(DiskQuotaWidget)
+        disk_quota.toggle_collapsed()
+
     def action_help(self) -> None:
         """Show keybinding cheatsheet as notification."""
         self.notify(
@@ -447,6 +503,7 @@ class MainScreen(Screen):
         """Open a native shell, suspending the TUI until exit."""
         shell = os.environ.get("SHELL", "/bin/bash")
         with self.app.suspend():
+            subprocess.run("clear")
             print("\033[1;34m=== SLURM TUI Console ===\033[0m")
             print("Type \033[1mexit\033[0m or press \033[1mCtrl+D\033[0m to return to the TUI.\n")
             subprocess.run(shell)

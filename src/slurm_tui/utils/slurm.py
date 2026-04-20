@@ -15,8 +15,10 @@ class Job:
 
     job_id: str
     name: str
+    user: str
     state: str
     partition: str
+    qos: str
     gpus: int
     cpus: int
     memory: str
@@ -74,8 +76,8 @@ class SlurmClient:
         """Get list of jobs from squeue."""
         jobs = []
 
-        # Format: JobID|Name|State|Partition|GRES|NumCPUs|MinMemory|TimeUsed|NodeList
-        fmt = "%i|%j|%t|%P|%b|%C|%m|%M|%N"
+        # Format: JobID|Name|User|State|Partition|QOS|GRES|NumCPUs|MinMemory|TimeUsed|NodeList
+        fmt = "%i|%j|%u|%t|%P|%q|%b|%C|%m|%M|%N"
 
         cmd = ["squeue", "-h", "-o", fmt]
         if not all_users:
@@ -90,12 +92,12 @@ class SlurmClient:
                 continue
 
             parts = line.split("|")
-            if len(parts) < 9:
+            if len(parts) < 11:
                 continue
 
             # Parse GPU count from GRES (e.g., "gpu:4" or "gpu:a100:4")
             gpus = 0
-            gres = parts[4]
+            gres = parts[6]
             if gres and "gpu" in gres.lower():
                 match = re.search(r"gpu(?::[^:]+)?:(\d+)", gres)
                 if match:
@@ -105,13 +107,15 @@ class SlurmClient:
                 Job(
                     job_id=parts[0],
                     name=parts[1],
-                    state=parts[2],
-                    partition=parts[3],
+                    user=parts[2],
+                    state=parts[3],
+                    partition=parts[4],
+                    qos=parts[5],
                     gpus=gpus,
-                    cpus=int(parts[5]) if parts[5].isdigit() else 0,
-                    memory=parts[6],
-                    runtime=parts[7],
-                    node=parts[8] if parts[8] else "-",
+                    cpus=int(parts[7]) if parts[7].isdigit() else 0,
+                    memory=parts[8],
+                    runtime=parts[9],
+                    node=parts[10] if parts[10] else "-",
                 )
             )
 
@@ -254,6 +258,38 @@ class SlurmClient:
             "--pty",
             "bash",
         ]
+
+    def update_job_qos(self, job_id: str, qos: str) -> tuple[bool, str]:
+        """Update the QOS of a pending job."""
+        cmd = ["scontrol", "update", f"job={job_id}", f"qos={qos}"]
+        stdout, stderr, rc = self._run_command(cmd)
+        if rc == 0:
+            return True, f"Job {job_id} QOS updated to {qos}"
+        return False, stderr.strip() or "Failed to update QOS"
+
+    def get_available_qos(self) -> list[str]:
+        """Get list of available QOS names."""
+        cmd = ["sacctmgr", "show", "qos", "format=Name", "-n", "-P"]
+        stdout, stderr, rc = self._run_command(cmd)
+        if rc != 0:
+            return []
+        return [q.strip() for q in stdout.strip().split("\n") if q.strip()]
+
+    def update_job_partition(self, job_id: str, partition: str) -> tuple[bool, str]:
+        """Update the partition of a pending job."""
+        cmd = ["scontrol", "update", f"job={job_id}", f"partition={partition}"]
+        stdout, stderr, rc = self._run_command(cmd)
+        if rc == 0:
+            return True, f"Job {job_id} partition updated to {partition}"
+        return False, stderr.strip() or "Failed to update partition"
+
+    def get_available_partitions(self) -> list[str]:
+        """Get list of available partition names."""
+        cmd = ["sinfo", "-h", "-o", "%P"]
+        stdout, stderr, rc = self._run_command(cmd)
+        if rc != 0:
+            return []
+        return [p.strip().rstrip("*") for p in stdout.strip().split("\n") if p.strip()]
 
     def is_available(self) -> bool:
         """Check if SLURM commands are available."""

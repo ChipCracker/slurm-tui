@@ -15,6 +15,11 @@ class PartitionGPU:
     partition: str
     allocated: int
     total: int
+    non_preemptible: int = 0
+
+    @property
+    def preemptible(self) -> int:
+        return self.allocated - self.non_preemptible
 
     @property
     def usage_percent(self) -> float:
@@ -22,6 +27,12 @@ class PartitionGPU:
         if self.total == 0:
             return 0.0
         return (self.allocated / self.total) * 100
+
+    @property
+    def non_preemptible_percent(self) -> float:
+        if self.total == 0:
+            return 0.0
+        return (self.non_preemptible / self.total) * 100
 
 
 @dataclass
@@ -105,23 +116,30 @@ class GPUMonitor:
 
     def get_partition_allocation(self) -> list[PartitionGPU]:
         """Get GPU allocation per partition using only 2 subprocess calls total."""
-        # Single squeue call for all running jobs' GRES
+        # Single squeue call for all running jobs' GRES + QOS
         allocated_by_part: dict[str, int] = {}
+        non_preempt_by_part: dict[str, int] = {}
         stdout, _, rc = self._run_command(
-            ["squeue", "-h", "-t", "R", "-o", "%P|%b"]
+            ["squeue", "-h", "-t", "R", "-o", "%P|%b|%q"]
         )
         if rc == 0:
             for line in stdout.strip().split("\n"):
                 if not line or "|" not in line:
                     continue
-                parts = line.split("|", 1)
+                parts = line.split("|")
                 part_name = parts[0].strip().rstrip("*")
                 gres = parts[1].strip() if len(parts) > 1 else ""
+                qos = parts[2].strip() if len(parts) > 2 else ""
                 if gres and "gpu" in gres.lower():
                     for match in re.finditer(r"gpu(?::[^:,\s]+)?:(\d+)", gres):
+                        gpu_count = int(match.group(1))
                         allocated_by_part[part_name] = (
-                            allocated_by_part.get(part_name, 0) + int(match.group(1))
+                            allocated_by_part.get(part_name, 0) + gpu_count
                         )
+                        if qos != "preemptible":
+                            non_preempt_by_part[part_name] = (
+                                non_preempt_by_part.get(part_name, 0) + gpu_count
+                            )
 
         # Single sinfo call for all partitions' total GPUs
         total_by_part: dict[str, int] = {}
@@ -145,10 +163,12 @@ class GPUMonitor:
         for partition in self.partition_gpus:
             total = total_by_part.get(partition, self.partition_gpus.get(partition, 0))
             allocated = allocated_by_part.get(partition, 0)
+            non_preemptible = non_preempt_by_part.get(partition, 0)
             allocations.append(PartitionGPU(
                 partition=partition,
                 allocated=allocated,
                 total=total,
+                non_preemptible=non_preemptible,
             ))
 
         return allocations
@@ -350,6 +370,52 @@ class GPUMonitor:
             except (ValueError, IndexError):
                 continue
         return stats
+
+    def get_job_memory_stats(self, job_id: str) -> float | None:
+        """Get MaxRSS (in MB) for a running job via sstat.
+
+        Returns MaxRSS in MB, or None on failure.
+        """
+        for suffix in [".batch", ""]:
+            cmd = [
+                "sstat", "-j", f"{job_id}{suffix}",
+                "--format=MaxRSS", "-n", "-P",
+            ]
+            stdout, _, rc = self._run_command(cmd, timeout=10)
+            if rc != 0 or not stdout.strip():
+                continue
+
+            max_rss = 0.0
+            for line in stdout.strip().split("\n"):
+                val = line.strip()
+                if not val:
+                    continue
+                mb = self._parse_slurm_mem(val)
+                if mb > max_rss:
+                    max_rss = mb
+            if max_rss > 0:
+                return max_rss
+
+        return None
+
+    @staticmethod
+    def _parse_slurm_mem(value: str) -> float:
+        """Parse SLURM memory strings like '4096K', '2048M', '1G' to MB."""
+        value = value.strip()
+        if not value:
+            return 0.0
+        try:
+            if value.endswith("K"):
+                return float(value[:-1]) / 1024
+            elif value.endswith("M"):
+                return float(value[:-1])
+            elif value.endswith("G"):
+                return float(value[:-1]) * 1024
+            elif value.endswith("T"):
+                return float(value[:-1]) * 1024 * 1024
+            return float(value)
+        except ValueError:
+            return 0.0
 
     def is_available(self) -> bool:
         """Check if GPU monitoring commands are available."""

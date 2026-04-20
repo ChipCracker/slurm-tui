@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import os
-import subprocess
-
 from textual import work
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
@@ -291,11 +288,7 @@ class LogViewerScreen(ModalScreen):
                 self.notify("No log content to copy", severity="warning")
                 return
 
-            proc = subprocess.run(
-                ["pbcopy"] if os.uname().sysname == "Darwin" else ["xclip", "-selection", "clipboard"],
-                input=text.encode(),
-                check=True,
-            )
+            self.app.copy_to_clipboard(text)
             self.notify(f"Copied {label} logs to clipboard")
         except Exception as e:
             self.notify(f"Copy failed: {e}", severity="error")
