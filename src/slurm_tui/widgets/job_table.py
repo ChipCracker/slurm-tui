@@ -6,7 +6,6 @@ from textual import work
 from textual.app import ComposeResult
 from textual.containers import Horizontal
 from textual.message import Message
-from textual.reactive import reactive
 from textual.widgets import Static, DataTable
 from textual.widget import Widget
 from textual.worker import get_current_worker
@@ -129,9 +128,6 @@ class JobTableWidget(Widget):
     }
     """
 
-    jobs: reactive[list[Job]] = reactive(list)
-    show_all_users: reactive[bool] = reactive(False)
-
     class JobSelected(Message):
         """Message sent when a job is selected."""
 
@@ -171,6 +167,10 @@ class JobTableWidget(Widget):
         self._display_jobs: list[Job] = []
         self._selected_ids: set[str] = set()
         self._table_has_user_col: bool = False
+        # Plain attributes (formerly reactives — no watchers existed, so the
+        # default reactive refresh() pass was pure overhead per 10s tick).
+        self.jobs: list[Job] = []
+        self.show_all_users: bool = False
 
     def compose(self) -> ComposeResult:
         # Section header

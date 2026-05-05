@@ -8,8 +8,9 @@ from textual.app import App
 
 from .screens.main import MainScreen
 
-# Default to 20fps — plenty for a dashboard, saves terminal I/O over SSH
-os.environ.setdefault("TEXTUAL_REFRESH", "20")
+# Default to 12fps — plenty for a dashboard refreshing every 10s, saves
+# terminal I/O over SSH and reduces idle CPU in the compositor.
+os.environ.setdefault("TEXTUAL_REFRESH", "12")
 
 
 class SlurmTUI(App):
