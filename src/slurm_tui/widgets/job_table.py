@@ -269,8 +269,11 @@ class JobTableWidget(Widget):
             else:
                 gpu_display = "[#414868] -[/]"
 
-            # Time format
-            if job.runtime and job.runtime != "0:00":
+            # Time / Reason — for pending jobs the runtime is meaningless,
+            # so we show why squeue is keeping the job in the queue instead.
+            if job.state == "PD" and job.reason:
+                time_display = f"[#e0af68]{job.reason[:14]}[/]"
+            elif job.runtime and job.runtime != "0:00":
                 time_display = f"[#565f89]{job.runtime:>8}[/]"
             else:
                 time_display = "[#414868]      —[/]"

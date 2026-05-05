@@ -24,6 +24,7 @@ class Job:
     memory: str
     runtime: str
     node: str
+    reason: str = ""
 
 
 @dataclass
@@ -76,8 +77,8 @@ class SlurmClient:
         """Get list of jobs from squeue."""
         jobs = []
 
-        # Format: JobID|Name|User|State|Partition|QOS|GRES|NumCPUs|MinMemory|TimeUsed|NodeList
-        fmt = "%i|%j|%u|%t|%P|%q|%b|%C|%m|%M|%N"
+        # Format: JobID|Name|User|State|Partition|QOS|GRES|NumCPUs|MinMemory|TimeUsed|NodeList|Reason
+        fmt = "%i|%j|%u|%t|%P|%q|%b|%C|%m|%M|%N|%r"
 
         cmd = ["squeue", "-h", "-o", fmt]
         if not all_users:
@@ -103,6 +104,12 @@ class SlurmClient:
                 if match:
                     gpus = int(match.group(1))
 
+            # squeue's %r returns "None" for jobs that aren't waiting on
+            # something — drop it so callers can `if job.reason:` cleanly.
+            reason = parts[11].strip() if len(parts) > 11 else ""
+            if reason.lower() in ("none", ""):
+                reason = ""
+
             jobs.append(
                 Job(
                     job_id=parts[0],
@@ -116,6 +123,7 @@ class SlurmClient:
                     memory=parts[8],
                     runtime=parts[9],
                     node=parts[10] if parts[10] else "-",
+                    reason=reason,
                 )
             )
 
