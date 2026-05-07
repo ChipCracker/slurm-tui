@@ -88,8 +88,7 @@ class MainScreen(Screen):
 
     MainScreen > #main-content > #left-panel > #top-panel {
         height: auto;
-        max-height: 60%;
-        overflow-y: auto;
+        max-height: 50%;
     }
 
     MainScreen > #main-content > #left-panel > #bottom-panel {
@@ -134,12 +133,10 @@ class MainScreen(Screen):
         ("d", "sort_direction", "Sort ↕"),
         ("y", "sort_column_left", "← Column"),
         ("c", "sort_column_right", "→ Column"),
-        ("o", "toggle_running_visible", "Running"),
-        ("h", "toggle_hours_visible", "Hours"),
+        ("o", "toggle_running", "Overview"),
+        ("h", "toggle_hours", "GPU Hours"),
         ("g", "gpu_details", "GPU Details"),
         ("v", "gpu_stats", "GPU Stats"),
-        ("j", "toggle_preempt_overlay", "Preempt Color"),
-        ("m", "toggle_own_overlay", "Mine Color"),
         ("w", "toggle_log_stream", "stderr/stdout"),
         ("l", "view_logs", "Logs"),
         ("b", "bookmarks", "Bookmarks"),
@@ -204,9 +201,8 @@ class MainScreen(Screen):
             "[#7aa2f7]a[/]ttach  [#7aa2f7]d[/]ir  [#7aa2f7]C[/]ancel  "
             "[#7aa2f7]r[/]efresh  "
             "[#7aa2f7]n[/]ew  [#7aa2f7]i[/]nteractive  [#7aa2f7]u[/]sers  "
-            "[#7aa2f7]o[/]running  [#7aa2f7]h[/]ours  "
-            "[#7aa2f7]g[/]pu  [#7aa2f7]v[/]GPU  [#7aa2f7]j[/]preempt  [#7aa2f7]m[/]ine  "
-            "[#7aa2f7]w[/]stderr/out  "
+            "[#7aa2f7]o[/]verview  [#7aa2f7]h[/]ours  "
+            "[#7aa2f7]g[/]pu  [#7aa2f7]v[/]GPU  [#7aa2f7]w[/]stderr/out  "
             "[#7aa2f7]p[/]qos  [#7aa2f7]P[/]art  [#7aa2f7]f[/]quota  "
             "[#7aa2f7]l[/]ogs  [#7aa2f7]b[/]ookmarks  "
             "[#7aa2f7]e[/]ditor  [#7aa2f7]t[/]erminal  [#7aa2f7]q[/]uit",
@@ -401,15 +397,15 @@ class MainScreen(Screen):
         details_panel = self.query_one(JobDetailsWidget)
         details_panel.show_gpu_stats(job, self.gpu_monitor)
 
-    def action_toggle_running_visible(self) -> None:
-        """Toggle running jobs section visibility (hide/show)."""
+    def action_toggle_running(self) -> None:
+        """Toggle running jobs overview expanded/compact."""
         gpu_hours = self.query_one(GPUHoursWidget)
-        gpu_hours.toggle_running_visible()
+        gpu_hours.toggle_expanded()
 
-    def action_toggle_hours_visible(self) -> None:
-        """Toggle GPU hours section visibility (hide/show)."""
+    def action_toggle_hours(self) -> None:
+        """Toggle GPU hours leaderboard collapsed/expanded."""
         gpu_hours = self.query_one(GPUHoursWidget)
-        gpu_hours.toggle_hours_visible()
+        gpu_hours.toggle_hours()
 
     def action_gpu_details(self) -> None:
         """Cycle through partition details in the right panel."""
@@ -421,18 +417,6 @@ class MainScreen(Screen):
             self.notify("GPU details closed")
         else:
             details_panel.update_partition(partition, self.gpu_monitor)
-
-    def action_toggle_preempt_overlay(self) -> None:
-        """Toggle the preemptible/non-preemptible colour overlay on GPU bars."""
-        gpu_widget = self.query_one(GPUMonitorWidget)
-        on = gpu_widget.toggle_preempt_overlay()
-        self.notify(f"Preempt overlay {'on' if on else 'off'}")
-
-    def action_toggle_own_overlay(self) -> None:
-        """Toggle the own/other colour overlay on GPU bars."""
-        gpu_widget = self.query_one(GPUMonitorWidget)
-        on = gpu_widget.toggle_own_overlay()
-        self.notify(f"Mine overlay {'on' if on else 'off'}")
 
     def action_change_qos(self) -> None:
         """Change QOS of pending job(s)."""
