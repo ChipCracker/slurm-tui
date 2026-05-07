@@ -223,9 +223,10 @@ class GPUMonitorWidget(Widget):
         self._timer = None
         self._detail_index: int = -1
         self.partitions: list[PartitionGPU] = []
-        # Colour overlays — both default to off so the bar is plain on first run.
-        self.show_preempt_overlay: bool = False
-        self.show_own_overlay: bool = False
+        # Default-on: zeige direkt die 4-Bucket-Aufteilung
+        # (mine / mine-preempt / other / other-preempt).
+        self.show_preempt_overlay: bool = True
+        self.show_own_overlay: bool = True
 
     def compose(self) -> ComposeResult:
         """Compose the header, separator, and content area."""
