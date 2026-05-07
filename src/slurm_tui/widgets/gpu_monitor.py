@@ -15,32 +15,151 @@ from ..utils.gpu import GPUMonitor, PartitionGPU
 # Unicode block characters for gradient-style progress bar
 BLOCKS = " ▁▂▃▄▅▆▇█"
 
-
-def make_gradient_bar(percent: float, non_preempt_percent: float = 0.0, width: int = 25) -> str:
-    """Create a two-tone progress bar: red for non-preemptible, yellow for preemptible."""
-    non_preempt_chars = int(non_preempt_percent / 100 * width + 0.5)
-    total_filled = int(percent / 100 * width + 0.5)
-    preempt_chars = total_filled - non_preempt_chars
-    empty = width - total_filled
-
-    bar = (
-        f"[#f7768e]" + "█" * non_preempt_chars + "[/]"
-        + f"[#e0af68]" + "▒" * preempt_chars + "[/]"
-        + "░" * empty
-    )
-    return bar
+# Warm, muted "earth tones" palette — sage, cream, coral, mauve.
+# Mine = green family, Other = red/coral family. Preempt variants are
+# softer/lighter than their non-preempt counterparts.
+COLOR_NEUTRAL           = "#d8b48a"  # warm tan — plain "allocated"
+COLOR_NON_PREEMPT       = "#c97a6e"  # muted coral — protected
+COLOR_PREEMPT           = "#a89c8a"  # warm taupe — preemptible
+COLOR_OWN               = "#a3be8c"  # sage green — own GPUs
+COLOR_OTHER             = "#c97a6e"  # muted coral — other users' GPUs
+COLOR_OWN_NON_PREEMPT   = "#a3be8c"  # sage green — own protected
+COLOR_OWN_PREEMPT       = "#d8c89c"  # warm cream — own killable
+COLOR_OTHER_NON_PREEMPT = "#c97a6e"  # muted coral — other protected
+COLOR_OTHER_PREEMPT     = "#9c8aa3"  # dusty mauve — other killable
 
 
-def _render_partition_row(partition: PartitionGPU) -> str:
+def _bar_segments(
+    partition: PartitionGPU,
+    show_preempt: bool,
+    show_own: bool,
+    width: int = 25,
+) -> list[tuple[int, str]]:
+    """Return a list of (gpu_count, color) segments for the bar.
+
+    Order matters — segments are rendered left-to-right in this order.
+    """
+    if show_preempt and show_own:
+        return [
+            (partition.own_non_preemptible, COLOR_OWN_NON_PREEMPT),
+            (partition.own_preemptible, COLOR_OWN_PREEMPT),
+            (partition.other_non_preemptible, COLOR_OTHER_NON_PREEMPT),
+            (partition.other_preemptible, COLOR_OTHER_PREEMPT),
+        ]
+    if show_preempt:
+        return [
+            (partition.non_preemptible, COLOR_NON_PREEMPT),
+            (partition.preemptible, COLOR_PREEMPT),
+        ]
+    if show_own:
+        return [
+            (partition.own_allocated, COLOR_OWN),
+            (partition.other_allocated, COLOR_OTHER),
+        ]
+    return [(partition.allocated, COLOR_NEUTRAL)]
+
+
+def make_gradient_bar(
+    partition: PartitionGPU,
+    show_preempt: bool = True,
+    show_own: bool = False,
+    width: int = 25,
+) -> str:
+    """Create a multi-segment progress bar for a partition.
+
+    Segment widths are computed in proportion to the partition's total GPU
+    count so empty space at the end is always correct, even when the
+    overlays slice the same allocation differently.
+    """
+    if partition.total <= 0:
+        return "░" * width
+
+    segments = _bar_segments(partition, show_preempt, show_own, width)
+
+    # Convert each segment from gpu-count → character count.
+    # Use cumulative rounding so the total never exceeds `width`.
+    bar_parts: list[str] = []
+    used = 0
+    cumulative_gpus = 0
+    for count, color in segments:
+        cumulative_gpus += count
+        target = int(cumulative_gpus / partition.total * width + 0.5)
+        seg_chars = max(0, target - used)
+        if seg_chars > 0:
+            bar_parts.append(f"[{color}]" + "█" * seg_chars + "[/]")
+            used += seg_chars
+
+    empty = max(0, width - used)
+    if empty > 0:
+        bar_parts.append(f"[#565f89]" + "░" * empty + "[/]")
+
+    return "".join(bar_parts)
+
+
+def _render_legend(show_preempt: bool, show_own: bool) -> str:
+    """Build a single-line colour legend matching the active overlay mode."""
+    if show_preempt and show_own:
+        items = [
+            (COLOR_OWN_NON_PREEMPT, "mine"),
+            (COLOR_OWN_PREEMPT, "mine·preempt"),
+            (COLOR_OTHER_NON_PREEMPT, "other"),
+            (COLOR_OTHER_PREEMPT, "other·preempt"),
+        ]
+    elif show_preempt:
+        items = [
+            (COLOR_NON_PREEMPT, "non-preempt"),
+            (COLOR_PREEMPT, "preempt"),
+        ]
+    elif show_own:
+        items = [
+            (COLOR_OWN, "mine"),
+            (COLOR_OTHER, "other"),
+        ]
+    else:
+        items = [(COLOR_NEUTRAL, "allocated")]
+
+    parts = [f"[{color}]██[/] [#565f89]{label}[/]" for color, label in items]
+    return "  ".join(parts)
+
+
+def _render_partition_row(
+    partition: PartitionGPU,
+    show_preempt: bool,
+    show_own: bool,
+) -> str:
     """Render a partition row as a single Rich markup string."""
     percent = partition.usage_percent
-    bar = make_gradient_bar(percent, partition.non_preemptible_percent)
-    preempt = partition.preemptible
+    bar = make_gradient_bar(partition, show_preempt, show_own)
+
+    # Count summary adapts to which overlays are active
+    if show_preempt and show_own:
+        count_summary = (
+            f"[{COLOR_OWN_NON_PREEMPT}]{partition.own_non_preemptible}[/]"
+            f"[#565f89]+[/]"
+            f"[{COLOR_OWN_PREEMPT}]{partition.own_preemptible}[/]"
+            f"[#565f89]/[/]"
+            f"[{COLOR_OTHER_NON_PREEMPT}]{partition.other_non_preemptible}[/]"
+            f"[#565f89]+[/]"
+            f"[{COLOR_OTHER_PREEMPT}]{partition.other_preemptible}[/]"
+        )
+    elif show_preempt:
+        count_summary = (
+            f"[{COLOR_NON_PREEMPT}]{partition.non_preemptible}[/]"
+            f"[#565f89]+[/]"
+            f"[{COLOR_PREEMPT}]{partition.preemptible}[/]"
+        )
+    elif show_own:
+        count_summary = (
+            f"[{COLOR_OWN}]{partition.own_allocated}[/]"
+            f"[#565f89]+[/]"
+            f"[{COLOR_OTHER}]{partition.other_allocated}[/]"
+        )
+    else:
+        count_summary = f"[{COLOR_NEUTRAL}]{partition.allocated:2}[/]"
+
     return (
         f"[#c0caf5]{partition.partition:<4}[/]"
-        f"[#f7768e]{partition.non_preemptible:1}[/]"
-        f"[#565f89]+[/]"
-        f"[#e0af68]{preempt:1}[/]"
+        f"{count_summary}"
         f"[#565f89]/{partition.total:2}[/]  "
         f"{bar}  "
         f"[#c0caf5]{percent:5.1f}%[/]"
@@ -97,14 +216,19 @@ class GPUMonitorWidget(Widget):
         refresh_interval: float = 10.0,
         **kwargs,
     ):
+        """Initialise GPU monitor with optional monitor instance and refresh interval."""
         super().__init__(**kwargs)
         self.gpu_monitor = gpu_monitor or GPUMonitor()
         self.refresh_interval = refresh_interval
         self._timer = None
         self._detail_index: int = -1
         self.partitions: list[PartitionGPU] = []
+        # Colour overlays — both default to off so the bar is plain on first run.
+        self.show_preempt_overlay: bool = False
+        self.show_own_overlay: bool = False
 
     def compose(self) -> ComposeResult:
+        """Compose the header, separator, and content area."""
         with Horizontal(classes="section-header"):
             yield Static("GPU Allocation", classes="section-title")
             yield Static(f"{int(self.refresh_interval)}s", classes="section-info")
@@ -117,6 +241,7 @@ class GPUMonitorWidget(Widget):
         self.set_timer(1.0, self._start_refresh)
 
     def _start_refresh(self) -> None:
+        """Kick off the first data fetch and schedule the periodic refresh timer."""
         self.refresh_data()
         self._timer = self.set_interval(self.refresh_interval, self.refresh_data)
 
@@ -134,12 +259,34 @@ class GPUMonitorWidget(Widget):
     def _apply_data(self, partitions: list[PartitionGPU]) -> None:
         """Update partition display imperatively — no recompose."""
         self.partitions = partitions
+        self._render_partitions()
+
+    def _render_partitions(self) -> None:
+        """Re-render the partition rows from cached data (no fetch)."""
         content = self.query_one(".partition-content", Static)
-        if not partitions:
+        if not self.partitions:
             content.update("No partition data available")
             return
-        lines = [_render_partition_row(p) for p in partitions]
+        lines = [
+            _render_partition_row(p, self.show_preempt_overlay, self.show_own_overlay)
+            for p in self.partitions
+        ]
+        # Append a colour legend so the meaning of the bar segments is
+        # always visible (and updates when toggles change).
+        lines.append(_render_legend(self.show_preempt_overlay, self.show_own_overlay))
         content.update("\n".join(lines))
+
+    def toggle_preempt_overlay(self) -> bool:
+        """Toggle the preemptible/non-preemptible colour overlay. Returns new state."""
+        self.show_preempt_overlay = not self.show_preempt_overlay
+        self._render_partitions()
+        return self.show_preempt_overlay
+
+    def toggle_own_overlay(self) -> bool:
+        """Toggle the own/other colour overlay. Returns new state."""
+        self.show_own_overlay = not self.show_own_overlay
+        self._render_partitions()
+        return self.show_own_overlay
 
     def cycle_partition_detail(self) -> PartitionGPU | None:
         """Cycle through partitions for detail view. Returns selected partition or None."""

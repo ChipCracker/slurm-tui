@@ -1,4 +1,29 @@
-"""GPU Hours Widget - shows GPU hours per user."""
+"""GPU Hours Widget — two-section panel for the GPU hours leaderboard and
+running-jobs summary.
+
+Layout (matching the DiskQuotaWidget pattern):
+
+    GPU Hours 2026                          h hide · H expand  60s
+    ────────────────────────────────────────
+    Top 10  ·  #2 18,942h
+
+    Running Jobs                            o hide · O expand  10s
+    ────────────────────────────────────────
+    17 jobs  ·  17 GPUs  ·  136 CPUs
+
+Each section has its own Horizontal header with a right-aligned hint, a
+separator, and a content Static.  ``h``/``o`` toggle visibility (hide
+completely), ``H``/``O`` toggle between collapsed one-liner and expanded
+detail view.
+
+Performance:
+    - The leaderboard is fetched via ``sreport`` every 60 s in a background
+      thread (``@work(thread=True, exclusive=True)``).
+    - Running-jobs data comes from ``JobTableWidget.JobsRefreshed`` messages
+      (10 s cycle) — no extra subprocess calls.
+    - All UI updates are imperative ``Static.update()`` calls; no
+      ``recompose()`` is ever triggered.
+"""
 
 from __future__ import annotations
 
@@ -7,6 +32,7 @@ from datetime import datetime
 
 from textual import work
 from textual.app import ComposeResult
+from textual.containers import Container, Horizontal
 from textual.widgets import Static
 from textual.widget import Widget
 from textual.worker import get_current_worker
@@ -15,18 +41,31 @@ from ..utils.gpu import GPUMonitor, GPUHoursEntry
 from ..utils.slurm import Job
 
 
+# ── Helpers ──────────────────────────────────────────────────────────
+
+
 def make_hours_bar(hours: float, max_hours: float, width: int = 20) -> str:
-    """Create a horizontal bar for GPU hours."""
+    """Create a horizontal bar proportional to *hours / max_hours*."""
     if max_hours <= 0:
         return "░" * width
     percent = min(hours / max_hours, 1.0)
     filled = int(percent * width)
     empty = width - filled
-    return "█" * filled + "░" * empty
+    return "█" * filled + "[#565f89]" + "░" * empty + "[/]"
+
+
+# ── Widget ───────────────────────────────────────────────────────────
 
 
 class GPUHoursWidget(Widget):
-    """Widget showing GPU hours per user."""
+    """Two-section panel: GPU hours leaderboard + running-jobs summary.
+
+    Public API consumed by MainScreen:
+        - ``refresh_data()``      — force-fetch GPU hours
+        - ``update_running_jobs()`` — push fresh job list
+        - ``toggle_hours_visible()`` / ``toggle_hours()``
+        - ``toggle_running_visible()`` / ``toggle_expanded()``
+    """
 
     DEFAULT_CSS = """
     GPUHoursWidget {
@@ -37,16 +76,43 @@ class GPUHoursWidget(Widget):
         margin: 0 0 1 0;
     }
 
-    GPUHoursWidget > .hours-all {
+    /* ── Hours section ───────────────────────────── */
+    GPUHoursWidget > #hours-section { height: auto; }
+
+    GPUHoursWidget > #hours-section > .section-header {
+        layout: horizontal;
+        height: 1;
+        margin-bottom: 0;
+    }
+
+    GPUHoursWidget > #hours-section > .section-header > .section-title {
+        width: 1fr;
+        color: #565f89;
+    }
+
+    GPUHoursWidget > #hours-section > .section-header > .section-info {
+        width: auto;
+        color: #414868;
+    }
+
+    GPUHoursWidget > #hours-section > .separator {
+        color: #414868;
+        margin-bottom: 0;
+    }
+
+    GPUHoursWidget > #hours-section > .hours-content {
         height: auto;
     }
 
-    GPUHoursWidget > .running-section {
-        color: #565f89;
+    /* ── Running section (single summary line) ──── */
+    GPUHoursWidget > #running-section { height: auto; margin-top: 1; }
+
+    GPUHoursWidget > #running-section > .running-content {
         height: auto;
-        margin-top: 1;
     }
     """
+
+    # ── Init ──────────────────────────────────────────────────────
 
     def __init__(
         self,
@@ -61,24 +127,53 @@ class GPUHoursWidget(Widget):
         self._timer = None
         self._entries: list[GPUHoursEntry] = []
         self._running_jobs: list[Job] = []
-        self._expanded: bool = False
-        self._hours_collapsed: bool = True
+        # Section states — both start hidden; user presses h/o to show.
+        self._hours_collapsed: bool = False
+        self._hours_visible: bool = False
+        self._running_visible: bool = False
+
+    # ── Compose ───────────────────────────────────────────────────
 
     def compose(self) -> ComposeResult:
-        yield Static(self._render_hours_collapsed(), classes="hours-all")
-        yield Static("", classes="running-section")
+        """Build the two-section layout (hours + running), each with a
+        DiskQuota-style header, separator, and content Static."""
+        year = datetime.now().year
+
+        # GPU Hours section
+        with Container(id="hours-section"):
+            with Horizontal(classes="section-header"):
+                yield Static(f"GPU Hours {year}", classes="section-title")
+                yield Static(
+                    self._hours_hint_text(),
+                    classes="section-info",
+                    id="hours-info",
+                )
+            yield Static("─" * 56, classes="separator")
+            yield Static(
+                "[#565f89]Loading hours data...[/]",
+                classes="hours-content",
+            )
+
+        # Running Jobs — single summary line, toggled via 'o'
+        with Container(id="running-section"):
+            yield Static("", classes="running-content")
+
+    # ── Data fetching ─────────────────────────────────────────────
 
     def on_mount(self) -> None:
-        """Start timer and load initial data (5s offset — sreport is slow, load last)."""
+        """Start auto-refresh timer (5 s offset so sreport loads last)."""
+        # Both sections start hidden — hide the entire widget to free space.
+        self._sync_widget_visibility()
         self.set_timer(5.0, self._start_refresh)
 
     def _start_refresh(self) -> None:
+        """Kick off the first fetch and schedule periodic refreshes."""
         self.refresh_data()
         self._timer = self.set_interval(self.refresh_interval, self.refresh_data)
 
     @work(thread=True, exclusive=True)
     def refresh_data(self) -> None:
-        """Refresh GPU hours in background thread."""
+        """Fetch GPU hours via ``sreport`` in a background thread."""
         worker = get_current_worker()
         try:
             entries = self.gpu_monitor.get_gpu_hours(limit=10)
@@ -88,108 +183,53 @@ class GPUHoursWidget(Widget):
             pass
 
     def _apply_hours(self, entries: list[GPUHoursEntry]) -> None:
-        """Update GPU hours display imperatively."""
+        """Store fetched entries and re-render the hours section."""
         self._entries = entries
         self._render_hours()
 
-    def _get_width(self) -> int:
-        """Get available content width."""
+    def update_running_jobs(self, jobs: list[Job]) -> None:
+        """Push a fresh job list from the job-table refresh cycle (10 s)."""
+        self._running_jobs = [j for j in jobs if j.state == "R"]
+        self._render_running()
+
+    # ── Hint text helpers ─────────────────────────────────────────
+
+    def _hours_hint_text(self) -> str:
+        """Build the right-aligned hint for the hours section header."""
+        return f"h to toggle  {int(self.refresh_interval)}s"
+
+    def _update_hours_hint(self) -> None:
+        """Sync the hours header hint with the current state."""
         try:
-            return self.content_size.width or 56
+            self.query_one("#hours-info", Static).update(self._hours_hint_text())
         except Exception:
-            return 56
+            pass
 
-    def _render_collapsed_lines(self) -> tuple[str, str]:
-        """Render both collapsed lines with aligned columns.
-
-        Layout:
-          ── GPU Hours 2026  Top 10   ·  #3 10,129h  ·  h to expand
-          ── Running Jobs    19 jobs  ·  22 GPUs      ·  o to expand
-        """
-        year = datetime.now().year
-        w = self._get_width()
-
-        # Column 1: label (padded to same width)
-        h_label = f"GPU Hours {year}"
-        r_label = "Running Jobs"
-        col1_w = max(len(h_label), len(r_label))
-
-        # Column 2: first info
-        h_col2 = "Top 10"
-        n_jobs = len(self._running_jobs)
-        r_col2 = f"{n_jobs} jobs"
-        col2_w = max(len(h_col2), len(r_col2))
-
-        # Column 3: second info
-        user_plain = ""
-        user_rich = ""
-        for i, entry in enumerate(self._entries, 1):
-            if entry.user == self.current_user:
-                user_plain = f"#{i} {entry.hours:,.0f}h"
-                user_rich = f"[#9ece6a]{user_plain}[/]"
-                break
-        total_gpus = sum(j.gpus for j in self._running_jobs)
-        r_col3 = f"{total_gpus} GPUs"
-        h_col3 = user_plain
-        col3_w = max(len(h_col3), len(r_col3)) if (h_col3 or r_col3) else 0
-
-        # Column 4: third info (only running)
-        total_cpus = sum(j.cpus for j in self._running_jobs)
-        r_col4 = f"{total_cpus} CPUs"
-
-        # Hints right-aligned
-        h_hint = "h to expand"
-        r_hint = "o to expand"
-        hint_len = max(len(h_hint), len(r_hint))
-
-        # Build hours line
-        h_parts_plain = f"── {h_label:<{col1_w}}  {h_col2:<{col2_w}}"
-        h_parts_rich = (
-            f"[#565f89]── [/][#7aa2f7]{h_label:<{col1_w}}[/]  "
-            f"[#565f89]{h_col2:<{col2_w}}[/]"
-        )
-        if user_rich:
-            h_parts_plain += f"  ·  {h_col3:<{col3_w}}"
-            h_parts_rich += f"  [#565f89]·[/]  {user_rich}{' ' * max(0, col3_w - len(h_col3))}"
-
-        h_pad = max(2, w - len(h_parts_plain) - hint_len)
-        hours_line = f"{h_parts_rich}{' ' * h_pad}[#414868]{h_hint}[/]"
-
-        # Build running line
-        if not self._running_jobs:
-            return hours_line, ""
-
-        r_parts_plain = f"── {r_label:<{col1_w}}  {r_col2:<{col2_w}}  ·  {r_col3:<{col3_w}}  ·  {r_col4}"
-        r_parts_rich = (
-            f"[#565f89]── [/][#9ece6a]{r_label:<{col1_w}}[/]  "
-            f"[#565f89]{r_col2:<{col2_w}}  ·  {r_col3:<{col3_w}}  ·  {r_col4}[/]"
-        )
-        r_pad = max(2, w - len(r_parts_plain) - hint_len)
-        running_line = f"{r_parts_rich}{' ' * r_pad}[#414868]{r_hint}[/]"
-
-        return hours_line, running_line
-
-    def _render_hours_collapsed(self) -> str:
-        """Single-line collapsed view."""
-        return self._render_collapsed_lines()[0]
+    # ── Hours rendering ───────────────────────────────────────────
 
     def _render_hours(self) -> None:
-        """Render hours content based on current state."""
+        """Re-render the hours content Static based on visibility/state."""
         try:
-            content = self.query_one(".hours-all", Static)
+            section = self.query_one("#hours-section", Container)
+            content = self.query_one(".hours-content", Static)
         except Exception:
             return
 
+        # Hidden → collapse the entire section container
+        if not self._hours_visible:
+            section.display = False
+            return
+
+        section.display = True
+        self._update_hours_hint()
+
+        # Collapsed one-liner
         if self._hours_collapsed:
             content.update(self._render_hours_collapsed())
             return
 
-        year = datetime.now().year
-        lines = [
-            f"[#565f89]GPU Hours {year}[/]                          [#414868]Top 10[/]",
-            "[#414868]" + "─" * 56 + "[/]",
-        ]
-
+        # Expanded leaderboard
+        lines: list[str] = []
         if not self._entries:
             lines.append("[#565f89]No data available[/]")
         else:
@@ -197,6 +237,7 @@ class GPUHoursWidget(Widget):
             for i, entry in enumerate(self._entries, 1):
                 is_current = entry.user == self.current_user
 
+                # Podium colours: gold / silver / bronze / muted
                 if i == 1:
                     rank_color = "#e0af68"
                 elif i == 2:
@@ -222,59 +263,89 @@ class GPUHoursWidget(Widget):
 
         content.update("\n".join(lines))
 
-    def _render_running(self) -> str:
-        """Build Rich markup for the running jobs section."""
+    def _render_hours_collapsed(self) -> str:
+        """Build the one-liner summary for the collapsed hours view."""
+        parts = ["[#565f89]Top 10[/]"]
+
+        # Highlight the current user's rank and hours
+        for i, entry in enumerate(self._entries, 1):
+            if entry.user == self.current_user:
+                parts.append(f"[#565f89]·[/]  [#9ece6a]#{i} {entry.hours:,.0f}h[/]")
+                break
+
+        return "  ".join(parts)
+
+    # ── Running rendering ─────────────────────────────────────────
+
+    @staticmethod
+    def _parse_mem_gb(mem_str: str) -> float:
+        """Parse a SLURM memory string like '4G', '16384M' to GB."""
+        mem_str = mem_str.strip()
+        if not mem_str or mem_str == "0":
+            return 0.0
+        try:
+            if mem_str.endswith("G"):
+                return float(mem_str[:-1])
+            if mem_str.endswith("M"):
+                return float(mem_str[:-1]) / 1024
+            if mem_str.endswith("K"):
+                return float(mem_str[:-1]) / (1024 * 1024)
+            if mem_str.endswith("T"):
+                return float(mem_str[:-1]) * 1024
+            return float(mem_str) / 1024  # plain number = MB
+        except ValueError:
+            return 0.0
+
+    def _render_running(self) -> None:
+        """Re-render the running-jobs one-liner summary."""
+        try:
+            section = self.query_one("#running-section", Container)
+            content = self.query_one(".running-content", Static)
+        except Exception:
+            return
+
+        # Hidden → collapse the entire section container
+        if not self._running_visible:
+            section.display = False
+            return
+
+        section.display = True
+
         if not self._running_jobs:
-            return ""
+            content.update("")
+            return
 
         total_gpus = sum(j.gpus for j in self._running_jobs)
         total_cpus = sum(j.cpus for j in self._running_jobs)
+        total_ram = sum(self._parse_mem_gb(j.memory) for j in self._running_jobs)
 
-        if not self._expanded:
-            _, running_line = self._render_collapsed_lines()
-            return running_line
+        content.update(
+            f"[#565f89]── [/][#9ece6a]Running[/]  "
+            f"[#565f89]{len(self._running_jobs)} jobs  ·  "
+            f"{total_gpus} GPUs  ·  {total_cpus} CPUs  ·  "
+            f"{total_ram:.0f}G RAM[/]  "
+            f"[#414868]o to toggle[/]"
+        )
 
-        lines = [
-            f"Running ({len(self._running_jobs)} jobs, {total_gpus} GPUs)",
-            "[#414868]" + "─" * 56 + "[/]",
-        ]
-        for job in self._running_jobs[:8]:
-            gpu_str = f"{job.gpus}×GPU" if job.gpus > 0 else "  —  "
-            runtime = job.runtime if job.runtime and job.runtime != "0:00" else "—"
-            lines.append(
-                f"[#c0caf5]{job.name[:18]:<18}[/]  "
-                f"[#7dcfff]{job.partition:<6}[/]  "
-                f"[#bb9af7]{gpu_str:>5}[/]  "
-                f"[#565f89]{runtime:>10}[/]"
-            )
-        if len(self._running_jobs) > 8:
-            lines.append(f"[#565f89]  +{len(self._running_jobs) - 8} more...[/]")
+    # ── Toggle methods (called by MainScreen actions) ─────────────
 
-        return "\n".join(lines)
+    def _sync_widget_visibility(self) -> None:
+        """Hide the entire widget when both sections are hidden, show otherwise."""
+        self.display = self._hours_visible or self._running_visible
 
-    def _update_running_section(self) -> None:
-        """Update the running section Static widget."""
-        try:
-            section = self.query_one(".running-section", Static)
-            section.update(self._render_running())
-            # Re-render hours collapsed line too so columns stay aligned
-            if self._hours_collapsed:
-                content = self.query_one(".hours-all", Static)
-                content.update(self._render_hours_collapsed())
-        except Exception:
-            pass
-
-    def update_running_jobs(self, jobs: list[Job]) -> None:
-        """Update running jobs from external source (e.g. JobTableWidget)."""
-        self._running_jobs = [j for j in jobs if j.state == "R"]
-        self._update_running_section()
-
-    def toggle_hours(self) -> None:
-        """Toggle GPU hours list collapsed/expanded."""
-        self._hours_collapsed = not self._hours_collapsed
+    def toggle_hours_visible(self) -> None:
+        """Toggle entire GPU hours section visibility (h key)."""
+        self._hours_visible = not self._hours_visible
         self._render_hours()
+        self._sync_widget_visibility()
 
+    def toggle_running_visible(self) -> None:
+        """Toggle running-jobs summary line visibility (o key)."""
+        self._running_visible = not self._running_visible
+        self._render_running()
+        self._sync_widget_visibility()
+
+    # Legacy alias — kept so MainScreen doesn't break if called.
     def toggle_expanded(self) -> None:
-        """Toggle between compact and expanded running jobs view."""
-        self._expanded = not self._expanded
-        self._update_running_section()
+        """Alias for toggle_running_visible (expanded view was removed)."""
+        self.toggle_running_visible()

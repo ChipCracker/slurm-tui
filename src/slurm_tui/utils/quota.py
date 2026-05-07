@@ -20,6 +20,7 @@ class DiskQuota:
 
     @property
     def usage_percent(self) -> float:
+        """Return usage as a percentage of quota, capped at 100."""
         if self.quota_bytes == 0:
             return 0.0
         return min((self.used_bytes / self.quota_bytes) * 100, 100.0)
@@ -46,7 +47,13 @@ class QuotaMonitor:
     """Monitor disk quotas via quota -s."""
 
     def get_quotas(self) -> list[DiskQuota]:
-        """Get disk quotas for the current user."""
+        """Get disk quotas for the current user.
+
+        Note: `quota` exits with rc != 0 whenever any filesystem is over its
+        soft quota (grace period active) — but the table on stdout is still
+        valid in that case, so we parse the output regardless of rc and only
+        bail when there's nothing to parse.
+        """
         try:
             result = subprocess.run(
                 ["quota", "-s"],
@@ -54,11 +61,11 @@ class QuotaMonitor:
                 text=True,
                 timeout=10,
             )
-            if result.returncode != 0:
-                return []
-            return self._parse_output(result.stdout)
         except (subprocess.TimeoutExpired, FileNotFoundError):
             return []
+        if not result.stdout.strip():
+            return []
+        return self._parse_output(result.stdout)
 
     def _parse_output(self, output: str) -> list[DiskQuota]:
         """Parse quota -s output.

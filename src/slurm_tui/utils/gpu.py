@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 from dataclasses import dataclass
@@ -10,16 +11,40 @@ from datetime import datetime
 
 @dataclass
 class PartitionGPU:
-    """GPU allocation for a partition."""
+    """GPU allocation for a partition.
+
+    Tracks four sub-categories so the GPU monitor widget can render
+    own-vs-other and preemptible-vs-non-preemptible overlays in any
+    combination.
+    """
 
     partition: str
     allocated: int
     total: int
-    non_preemptible: int = 0
+    own_non_preemptible: int = 0
+    own_preemptible: int = 0
+    other_non_preemptible: int = 0
+    other_preemptible: int = 0
+
+    @property
+    def non_preemptible(self) -> int:
+        """Total non-preemptible GPUs (own + other)."""
+        return self.own_non_preemptible + self.other_non_preemptible
 
     @property
     def preemptible(self) -> int:
-        return self.allocated - self.non_preemptible
+        """Total preemptible GPUs (own + other)."""
+        return self.own_preemptible + self.other_preemptible
+
+    @property
+    def own_allocated(self) -> int:
+        """GPUs allocated to the current user."""
+        return self.own_non_preemptible + self.own_preemptible
+
+    @property
+    def other_allocated(self) -> int:
+        """GPUs allocated to other users."""
+        return self.other_non_preemptible + self.other_preemptible
 
     @property
     def usage_percent(self) -> float:
@@ -30,6 +55,7 @@ class PartitionGPU:
 
     @property
     def non_preemptible_percent(self) -> float:
+        """Non-preemptible allocation as a percentage of total GPUs."""
         if self.total == 0:
             return 0.0
         return (self.non_preemptible / self.total) * 100
@@ -73,12 +99,14 @@ class GPUStats:
 
     @property
     def memory_percent(self) -> float:
+        """Memory usage as a percentage of total memory."""
         if self.memory_total == 0:
             return 0.0
         return (self.memory_used / self.memory_total) * 100
 
     @property
     def power_percent(self) -> float:
+        """Power draw as a percentage of the power limit."""
         if self.power_limit == 0:
             return 0.0
         return (self.power_draw / self.power_limit) * 100
@@ -97,7 +125,9 @@ class GPUMonitor:
     }
 
     def __init__(self, partition_gpus: dict[str, int] | None = None):
+        """Initialize with optional partition-to-GPU-count mapping."""
         self.partition_gpus = partition_gpus or self.DEFAULT_PARTITION_GPUS
+        self.username = os.environ.get("USER", os.environ.get("USERNAME", "unknown"))
 
     def _run_command(self, cmd: list[str], timeout: int = 30) -> tuple[str, str, int]:
         """Run a shell command and return stdout, stderr, returncode."""
@@ -115,31 +145,49 @@ class GPUMonitor:
             return "", f"Command not found: {cmd[0]}", 1
 
     def get_partition_allocation(self) -> list[PartitionGPU]:
-        """Get GPU allocation per partition using only 2 subprocess calls total."""
-        # Single squeue call for all running jobs' GRES + QOS
-        allocated_by_part: dict[str, int] = {}
-        non_preempt_by_part: dict[str, int] = {}
+        """Get GPU allocation per partition using only 2 subprocess calls total.
+
+        Splits each partition's allocation into four buckets:
+        own/other × non-preemptible/preemptible. The widget uses these
+        to render coloured overlays in any combination.
+        """
+        own_np: dict[str, int] = {}
+        own_p: dict[str, int] = {}
+        other_np: dict[str, int] = {}
+        other_p: dict[str, int] = {}
+
+        # Single squeue call for all running jobs' user, GRES, QOS
         stdout, _, rc = self._run_command(
-            ["squeue", "-h", "-t", "R", "-o", "%P|%b|%q"]
+            ["squeue", "-h", "-t", "R", "-o", "%P|%u|%b|%q"]
         )
         if rc == 0:
             for line in stdout.strip().split("\n"):
                 if not line or "|" not in line:
                     continue
                 parts = line.split("|")
+                if len(parts) < 4:
+                    continue
                 part_name = parts[0].strip().rstrip("*")
-                gres = parts[1].strip() if len(parts) > 1 else ""
-                qos = parts[2].strip() if len(parts) > 2 else ""
-                if gres and "gpu" in gres.lower():
-                    for match in re.finditer(r"gpu(?::[^:,\s]+)?:(\d+)", gres):
-                        gpu_count = int(match.group(1))
-                        allocated_by_part[part_name] = (
-                            allocated_by_part.get(part_name, 0) + gpu_count
-                        )
-                        if qos != "preemptible":
-                            non_preempt_by_part[part_name] = (
-                                non_preempt_by_part.get(part_name, 0) + gpu_count
-                            )
+                user = parts[1].strip()
+                gres = parts[2].strip()
+                qos = parts[3].strip()
+                if not gres or "gpu" not in gres.lower():
+                    continue
+
+                is_own = user == self.username
+                is_preempt = qos == "preemptible"
+
+                if is_own and is_preempt:
+                    bucket = own_p
+                elif is_own:
+                    bucket = own_np
+                elif is_preempt:
+                    bucket = other_p
+                else:
+                    bucket = other_np
+
+                for match in re.finditer(r"gpu(?::[^:,\s]+)?:(\d+)", gres):
+                    bucket[part_name] = bucket.get(part_name, 0) + int(match.group(1))
 
         # Single sinfo call for all partitions' total GPUs
         total_by_part: dict[str, int] = {}
@@ -162,13 +210,18 @@ class GPUMonitor:
         allocations = []
         for partition in self.partition_gpus:
             total = total_by_part.get(partition, self.partition_gpus.get(partition, 0))
-            allocated = allocated_by_part.get(partition, 0)
-            non_preemptible = non_preempt_by_part.get(partition, 0)
+            onp = own_np.get(partition, 0)
+            op = own_p.get(partition, 0)
+            tnp = other_np.get(partition, 0)
+            tp = other_p.get(partition, 0)
             allocations.append(PartitionGPU(
                 partition=partition,
-                allocated=allocated,
+                allocated=onp + op + tnp + tp,
                 total=total,
-                non_preemptible=non_preemptible,
+                own_non_preemptible=onp,
+                own_preemptible=op,
+                other_non_preemptible=tnp,
+                other_preemptible=tp,
             ))
 
         return allocations
