@@ -26,6 +26,27 @@ class Job:
     node: str
     reason: str = ""
 
+    @property
+    def is_held(self) -> bool:
+        """True when the job is held (priority 0) instead of being scheduled."""
+        return self.reason in ("JobHeldUser", "JobHeldAdmin")
+
+
+def job_pause_action(job: Job) -> Optional[str]:
+    """Decide which pause/resume operation fits a job's current state.
+
+    Pending jobs are held/released (scheduler stops considering them),
+    running jobs are suspended/resumed (allocation is kept, processes stop).
+    Returns None for states where neither applies (completing, failed, ...).
+    """
+    if job.state == "PD":
+        return "release" if job.is_held else "hold"
+    if job.state == "R":
+        return "suspend"
+    if job.state in ("S", "ST"):
+        return "resume"
+    return None
+
 
 @dataclass
 class Partition:
@@ -178,6 +199,34 @@ class SlurmClient:
         if rc == 0:
             return True, f"Job {job_id} cancelled"
         return False, stderr or "Failed to cancel job"
+
+    def hold_job(self, job_id: str) -> tuple[bool, str]:
+        """Hold a pending job so the scheduler stops considering it."""
+        return self._scontrol_job_action("hold", job_id, f"Job {job_id} held")
+
+    def release_job(self, job_id: str) -> tuple[bool, str]:
+        """Release a held job back into the queue."""
+        return self._scontrol_job_action("release", job_id, f"Job {job_id} released")
+
+    def suspend_job(self, job_id: str) -> tuple[bool, str]:
+        """Suspend a running job (keeps the allocation, stops the processes).
+
+        Most clusters restrict this to operators — a permission error from
+        scontrol is passed through to the caller unchanged.
+        """
+        return self._scontrol_job_action("suspend", job_id, f"Job {job_id} suspended")
+
+    def resume_job(self, job_id: str) -> tuple[bool, str]:
+        """Resume a suspended job."""
+        return self._scontrol_job_action("resume", job_id, f"Job {job_id} resumed")
+
+    def _scontrol_job_action(self, verb: str, job_id: str, ok_message: str) -> tuple[bool, str]:
+        """Run 'scontrol <verb> <job_id>' with array-ID normalization."""
+        normalized = normalize_array_job_id(job_id)
+        stdout, stderr, rc = self._run_command(["scontrol", verb, normalized])
+        if rc == 0:
+            return True, ok_message
+        return False, stderr.strip() or f"Failed to {verb} job {job_id}"
 
     def submit_job(self, script_path: str) -> tuple[bool, str]:
         """Submit a job script."""

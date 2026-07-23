@@ -10,6 +10,7 @@ Navigation:
     y / ←  = move to the previous sort column
     c / →  = move to the next sort column
     C      = cancel the selected job
+    z      = pause/resume the selected job (hold ↔ release, suspend ↔ resume)
     ↑ / ↓  = row navigation (DataTable) or cursor (TextArea)
 
 Design decisions:
@@ -34,7 +35,7 @@ from textual.screen import Screen
 from textual.widgets import Static
 
 from ..widgets import GPUMonitorWidget, GPUHoursWidget, JobTableWidget, JobDetailsWidget, DiskQuotaWidget
-from ..utils.slurm import SlurmClient
+from ..utils.slurm import SlurmClient, job_pause_action
 from ..utils.gpu import GPUMonitor
 from ..utils.quota import QuotaMonitor
 from ..utils.bookmarks import BookmarkManager
@@ -129,6 +130,7 @@ class MainScreen(Screen):
         ("i", "interactive", "Interactive"),
         ("a", "attach", "Attach"),
         ("C", "cancel", "Cancel"),
+        ("z", "toggle_pause", "Pause/Resume"),
         ("u", "toggle_users", "Toggle Users"),
         ("s,x", "sort", "Sort"),
         ("d", "sort_direction", "Sort ↕"),
@@ -202,7 +204,7 @@ class MainScreen(Screen):
         yield Static(
             "[#7aa2f7]y[/]/← prev  [#7aa2f7]x/s[/]ort  [#7aa2f7]c[/]/→ next  "
             "[#7aa2f7]a[/]ttach  [#7aa2f7]d[/]ir  [#7aa2f7]C[/]ancel  "
-            "[#7aa2f7]r[/]efresh  "
+            "[#7aa2f7]z[/]pause  [#7aa2f7]r[/]efresh  "
             "[#7aa2f7]n[/]ew  [#7aa2f7]i[/]nteractive  [#7aa2f7]u[/]sers  "
             "[#7aa2f7]o[/]running  [#7aa2f7]h[/]ours  "
             "[#7aa2f7]g[/]pu  [#7aa2f7]v[/]GPU  [#7aa2f7]j[/]preempt  [#7aa2f7]m[/]ine  "
@@ -381,6 +383,51 @@ class MainScreen(Screen):
         from .job_submit import ConfirmCancelScreen
         self.app.push_screen(ConfirmCancelScreen(jobs))
 
+    def action_toggle_pause(self) -> None:
+        """Pause/resume selected job(s).
+
+        The operation follows the job state: pending jobs are held (and held
+        jobs released), running jobs are suspended (and suspended ones
+        resumed). Jobs in any other state are reported as skipped.
+        """
+        job_table = self.query_one(JobTableWidget)
+        jobs = job_table.get_selected_jobs()
+
+        if not jobs:
+            self.notify("No job selected", severity="warning")
+            return
+
+        handlers = {
+            "hold": self.slurm_client.hold_job,
+            "release": self.slurm_client.release_job,
+            "suspend": self.slurm_client.suspend_job,
+            "resume": self.slurm_client.resume_job,
+        }
+
+        done: list[str] = []
+        failed: list[str] = []
+        skipped: list[str] = []
+
+        for job in jobs:
+            action = job_pause_action(job)
+            if action is None:
+                skipped.append(f"{job.job_id} ({job.state})")
+                continue
+            success, message = handlers[action](job.job_id)
+            if success:
+                done.append(message)
+            else:
+                failed.append(f"{job.job_id}: {message}")
+
+        if done:
+            self.notify("; ".join(done))
+        if failed:
+            self.notify(f"Failed: {'; '.join(failed)}", severity="error")
+        if skipped and not done and not failed:
+            self.notify(f"Cannot pause: {', '.join(skipped)}", severity="warning")
+
+        job_table.refresh_data()
+
     def action_toggle_users(self) -> None:
         """Toggle between own jobs and all users' jobs."""
         job_table = self.query_one(JobTableWidget)
@@ -481,7 +528,7 @@ class MainScreen(Screen):
     def action_help(self) -> None:
         """Show keybinding cheatsheet as notification."""
         self.notify(
-            "y/←=Prev Col  c/→=Next Col  x/s=Sort  d=Dir  a=Attach  C=Cancel  "
+            "y/←=Prev Col  c/→=Next Col  x/s=Sort  d=Dir  a=Attach  C=Cancel  z=Pause  "
             "n=New  l=Logs  b=Bookmarks  e=Editor  w=stderr/stdout  q=Quit",
             timeout=5,
         )

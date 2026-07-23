@@ -104,6 +104,7 @@ python -m slurm_tui
 | `a`   | Attach to running job                |
 | `d`   | Toggle sort direction (asc/desc)     |
 | `C`   | Cancel selected job                  |
+| `z`   | Pause/resume selected job            |
 | `u`   | Toggle all users / my jobs           |
 | `o`   | Overview: toggle running jobs        |
 | `g`   | GPU partition details (cycle)        |
@@ -116,6 +117,8 @@ python -m slurm_tui
 | `?`   | Show help                            |
 
 `←` and `→` move across sort columns while the script/log view is read-only. During script editing, the arrow keys keep their normal cursor behavior.
+
+`z` adapts to the job state: pending jobs are held (`scontrol hold`) and held jobs released again, running jobs are suspended (`scontrol suspend`) and suspended ones resumed. Held jobs keep state `PD` but are marked with `⏸` in the table. Suspending a running job usually requires operator privileges — SLURM's error message is shown if it is denied. Like `C`, the key applies to all marked jobs (space to mark).
 
 ### Job Details Panel
 

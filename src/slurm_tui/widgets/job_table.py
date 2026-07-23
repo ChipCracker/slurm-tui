@@ -17,6 +17,8 @@ from ..utils.slurm import SlurmClient, Job
 STATUS_SYMBOLS = {
     "R": ("●", "#9ece6a"),    # Running - green
     "PD": ("◐", "#e0af68"),   # Pending - yellow
+    "S": ("⏸", "#bb9af7"),    # Suspended - purple
+    "ST": ("⏸", "#bb9af7"),   # Stopped - purple
     "CD": ("✓", "#7aa2f7"),   # Completed - blue
     "CG": ("✓", "#7aa2f7"),   # Completing - blue
     "F": ("✗", "#f7768e"),    # Failed - red
@@ -261,6 +263,10 @@ class JobTableWidget(Widget):
             # Status symbol with color
             state = job.state
             symbol, color = STATUS_SYMBOLS.get(state, ("?", "#565f89"))
+            # Held jobs stay in state PD — mark them so they stand out from
+            # jobs that are merely waiting for resources.
+            if job.is_held:
+                symbol, color = "⏸", "#bb9af7"
             state_display = f"[{color}]{symbol}[/] [{color}]{state:3}[/]"
 
             # GPU with color
